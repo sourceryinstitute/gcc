@@ -671,8 +671,11 @@ int
 lra_constraint_offset (int regno, machine_mode mode)
 {
   lra_assert (regno < FIRST_PSEUDO_REGISTER);
-  if (WORDS_BIG_ENDIAN && GET_MODE_SIZE (mode) > UNITS_PER_WORD
-      && SCALAR_INT_MODE_P (mode))
+
+  scalar_int_mode int_mode;
+  if (WORDS_BIG_ENDIAN
+      && is_a <scalar_int_mode> (mode, &int_mode)
+      && GET_MODE_SIZE (int_mode) > UNITS_PER_WORD)
     return hard_regno_nregs[regno][mode] - 1;
   return 0;
 }
@@ -925,7 +928,7 @@ match_reload (signed char out, signed char *ins, signed char *outs,
   push_to_sequence (*before);
   if (inmode != outmode)
     {
-      if (GET_MODE_SIZE (inmode) > GET_MODE_SIZE (outmode))
+      if (partial_subreg_p (outmode, inmode))
 	{
 	  reg = new_in_reg
 	    = lra_create_new_reg_with_unique_value (inmode, in_rtx,
@@ -1576,8 +1579,7 @@ simplify_operand_subreg (int nop, machine_mode reg_mode)
 	      bitmap_set_bit (&lra_subreg_reload_pseudos, REGNO (new_reg));
 
 	      insert_before = (type != OP_OUT
-			       || GET_MODE_SIZE (innermode)
-				    > GET_MODE_SIZE (mode));
+			       || partial_subreg_p (mode, innermode));
 	      insert_after = type != OP_IN;
 	      insert_move_for_subreg (insert_before ? &before : NULL,
 				      insert_after ? &after : NULL,
@@ -2414,7 +2416,7 @@ process_alt_operands (int only_alternative)
 		{
 		  int i;
 		  for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
-		    if (HARD_REGNO_MODE_OK (i, mode)
+		    if (targetm.hard_regno_mode_ok (i, mode)
 			&& in_hard_reg_set_p (reg_class_contents[this_alternative],
 					      mode, i))
 		      break;
@@ -2526,10 +2528,9 @@ process_alt_operands (int only_alternative)
 		      && hard_regno[nop] < 0
 		      && GET_CODE (*curr_id->operand_loc[nop]) == SUBREG
 		      && ira_class_hard_regs_num[this_alternative] > 0
-		      && ! HARD_REGNO_MODE_OK (ira_class_hard_regs
-					       [this_alternative][0],
-					       GET_MODE
-					       (*curr_id->operand_loc[nop])))
+		      && (!targetm.hard_regno_mode_ok
+			  (ira_class_hard_regs[this_alternative][0],
+			   GET_MODE (*curr_id->operand_loc[nop]))))
 		    {
 		      if (lra_dump_file != NULL)
 			fprintf
@@ -2613,9 +2614,9 @@ process_alt_operands (int only_alternative)
 		     more one general reg).  Therefore we have 2
 		     conditions to check that the reload pseudo can
 		     not hold the mode value.  */
-		  && ! HARD_REGNO_MODE_OK (ira_class_hard_regs
-					   [this_alternative][0],
-					   GET_MODE (*curr_id->operand_loc[nop]))
+		  && (!targetm.hard_regno_mode_ok
+		      (ira_class_hard_regs[this_alternative][0],
+		       GET_MODE (*curr_id->operand_loc[nop])))
 		  /* The above condition is not enough as the first
 		     reg in ira_class_hard_regs can be not aligned for
 		     multi-words mode values.  */
@@ -3936,8 +3937,7 @@ curr_insn_transform (bool check_only_p)
       lra_assert (out >= 0 && in >= 0
 		  && curr_static_id->operand[out].type == OP_OUT
 		  && curr_static_id->operand[in].type == OP_IN);
-      rld = (GET_MODE_SIZE (GET_MODE (dest)) <= GET_MODE_SIZE (GET_MODE (src))
-	     ? dest : src);
+      rld = partial_subreg_p (GET_MODE (src), GET_MODE (dest)) ? src : dest;
       rld_mode = GET_MODE (rld);
 #ifdef SECONDARY_MEMORY_NEEDED_MODE
       sec_mode = SECONDARY_MEMORY_NEEDED_MODE (rld_mode);
@@ -3947,7 +3947,7 @@ curr_insn_transform (bool check_only_p)
       new_reg = lra_create_new_reg (sec_mode, NULL_RTX,
 				    NO_REGS, "secondary");
       /* If the mode is changed, it should be wider.  */
-      lra_assert (GET_MODE_SIZE (sec_mode) >= GET_MODE_SIZE (rld_mode));
+      lra_assert (!partial_subreg_p (sec_mode, rld_mode));
       if (sec_mode != rld_mode)
         {
 	  /* If the target says specifically to use another mode for
@@ -5294,8 +5294,8 @@ need_for_call_save_p (int regno)
 	       ? lra_reg_info[regno].actual_call_used_reg_set
 	       : call_used_reg_set,
 	       PSEUDO_REGNO_MODE (regno), reg_renumber[regno])
-	      || HARD_REGNO_CALL_PART_CLOBBERED (reg_renumber[regno],
-						 PSEUDO_REGNO_MODE (regno))));
+	      || (targetm.hard_regno_call_part_clobbered
+		  (reg_renumber[regno], PSEUDO_REGNO_MODE (regno)))));
 }
 
 /* Global registers occurring in the current EBB.  */
@@ -5518,7 +5518,7 @@ split_reg (bool before_p, int original_regno, rtx_insn *insn,
 	 mode used for each independent register may not be supported
 	 so reject the split.  Splitting the wider mode should theoretically
 	 be possible but is not implemented.  */
-      if (! HARD_REGNO_MODE_OK (hard_regno, mode))
+      if (!targetm.hard_regno_mode_ok (hard_regno, mode))
 	{
 	  if (lra_dump_file != NULL)
 	    {

@@ -321,6 +321,8 @@ static bool sh_legitimate_combined_insn (rtx_insn* insn);
 static bool sh_fixed_condition_code_regs (unsigned int* p1, unsigned int* p2);
 
 static void sh_init_sync_libfuncs (void) ATTRIBUTE_UNUSED;
+static bool sh_hard_regno_mode_ok (unsigned int, machine_mode);
+static bool sh_modes_tieable_p (machine_mode, machine_mode);
 
 static const struct attribute_spec sh_attribute_table[] =
 {
@@ -640,6 +642,12 @@ static const struct attribute_spec sh_attribute_table[] =
 
 #undef TARGET_CANNOT_FORCE_CONST_MEM
 #define TARGET_CANNOT_FORCE_CONST_MEM sh_cannot_force_const_mem_p
+
+#undef TARGET_HARD_REGNO_MODE_OK
+#define TARGET_HARD_REGNO_MODE_OK sh_hard_regno_mode_ok
+
+#undef TARGET_MODES_TIEABLE_P
+#define TARGET_MODES_TIEABLE_P sh_modes_tieable_p
 
 struct gcc_target targetm = TARGET_INITIALIZER;
 
@@ -1272,11 +1280,11 @@ sh_print_operand (FILE *stream, rtx x, int code)
 	{
 	  switch (GET_MODE (x))
 	    {
-	    case QImode: fputs (".b", stream); break;
-	    case HImode: fputs (".w", stream); break;
-	    case SImode: fputs (".l", stream); break;
-	    case SFmode: fputs (".s", stream); break;
-	    case DFmode: fputs (".d", stream); break;
+	    case E_QImode: fputs (".b", stream); break;
+	    case E_HImode: fputs (".w", stream); break;
+	    case E_SImode: fputs (".l", stream); break;
+	    case E_SFmode: fputs (".s", stream); break;
+	    case E_DFmode: fputs (".d", stream); break;
 	    default: gcc_unreachable ();
 	    }
 	}
@@ -4622,10 +4630,10 @@ dump_table (rtx_insn *start, rtx_insn *barrier)
 
 	  switch (p->mode)
 	    {
-	    case HImode:
+	    case E_HImode:
 	      break;
-	    case SImode:
-	    case SFmode:
+	    case E_SImode:
+	    case E_SFmode:
 	      if (align_insn && !p->part_of_sequence_p)
 		{
 		  for (lab = p->label; lab; lab = LABEL_REFS (lab))
@@ -4651,7 +4659,7 @@ dump_table (rtx_insn *start, rtx_insn *barrier)
 		  need_align = ! need_align;
 		}
 	      break;
-	    case DFmode:
+	    case E_DFmode:
 	      if (need_align)
 		{
 		  scan = emit_insn_after (gen_align_log (GEN_INT (3)), scan);
@@ -4659,7 +4667,7 @@ dump_table (rtx_insn *start, rtx_insn *barrier)
 		  need_align = false;
 		}
 	      /* FALLTHRU */
-	    case DImode:
+	    case E_DImode:
 	      for (lab = p->label; lab; lab = LABEL_REFS (lab))
 		scan = emit_label_after (lab, scan);
 	      scan = emit_insn_after (gen_consttable_8 (p->value, const0_rtx),
@@ -4689,10 +4697,10 @@ dump_table (rtx_insn *start, rtx_insn *barrier)
 
       switch (p->mode)
 	{
-	case HImode:
+	case E_HImode:
 	  break;
-	case SImode:
-	case SFmode:
+	case E_SImode:
+	case E_SFmode:
 	  if (need_align)
 	    {
 	      need_align = false;
@@ -4704,8 +4712,8 @@ dump_table (rtx_insn *start, rtx_insn *barrier)
 	  scan = emit_insn_after (gen_consttable_4 (p->value, const0_rtx),
 				  scan);
 	  break;
-	case DFmode:
-	case DImode:
+	case E_DFmode:
+	case E_DImode:
 	  if (need_align)
 	    {
 	      need_align = false;
@@ -10090,7 +10098,7 @@ sh_trampoline_init (rtx tramp_mem, tree fndecl, rtx cxt)
 	  || (!(TARGET_SH4A || TARGET_SH4_300) && TARGET_USERMODE))
 	emit_library_call (function_symbol (NULL, "__ic_invalidate",
 					    FUNCTION_ORDINARY).sym,
-			   LCT_NORMAL, VOIDmode, 1, tramp, SImode);
+			   LCT_NORMAL, VOIDmode, tramp, SImode);
       else
 	emit_insn (gen_ic_invalidate_line (tramp));
     }
@@ -10494,7 +10502,8 @@ sh_expand_builtin (tree exp, rtx target, rtx subtarget ATTRIBUTE_UNUSED,
   return target;
 }
 
-/* Return true if hard register REGNO can hold a value of machine-mode MODE.
+/* Implement TARGET_HARD_REGNO_MODE_OK.
+
    We can allow any mode in any general register.  The special registers
    only allow SImode.  Don't allow any mode in the PR.
 
@@ -10509,7 +10518,7 @@ sh_expand_builtin (tree exp, rtx target, rtx subtarget ATTRIBUTE_UNUSED,
 
    We want to allow TImode FP regs so that when V4SFmode is loaded as TImode,
    it won't be ferried through GP registers first.  */
-bool
+static bool
 sh_hard_regno_mode_ok (unsigned int regno, machine_mode mode)
 {
   if (SPECIAL_REGISTER_P (regno))
@@ -10568,8 +10577,24 @@ sh_hard_regno_mode_ok (unsigned int regno, machine_mode mode)
   return true;
 }
 
+/* Implement TARGET_MODES_TIEABLE_P.
+
+   If TARGET_HARD_REGNO_MODE_OK could produce different values for MODE1
+   and MODE2, for any hard reg, then this must be false for correct output.
+   That's the case for xd registers: we don't hold SFmode values in
+   them, so we can't tie an SFmode pseudos with one in another
+   floating-point mode.  */
+
+static bool
+sh_modes_tieable_p (machine_mode mode1, machine_mode mode2)
+{
+  return (mode1 == mode2
+	  || (GET_MODE_CLASS (mode1) == GET_MODE_CLASS (mode2)
+	      && (mode1 != SFmode && mode2 != SFmode)));
+}
+
 /* Specify the modes required to caller save a given hard regno.
-   choose_hard_reg_mode chooses mode based on HARD_REGNO_MODE_OK
+   choose_hard_reg_mode chooses mode based on TARGET_HARD_REGNO_MODE_OK
    and returns ?Imode for float regs when sh_hard_regno_mode_ok
    permits integer modes on them.  That makes LRA's split process
    unhappy.  See PR55212.
@@ -11239,13 +11264,13 @@ sh_secondary_reload (bool in_p, rtx x, reg_class_t rclass_i,
 	  && ! ((fp_zero_operand (x) || fp_one_operand (x)) && mode == SFmode))
 	switch (mode)
 	  {
-	  case SFmode:
+	  case E_SFmode:
 	    sri->icode = CODE_FOR_reload_insf__frn;
 	    return NO_REGS;
-	  case DFmode:
+	  case E_DFmode:
 	    sri->icode = CODE_FOR_reload_indf__frn;
 	    return NO_REGS;
-	  case SImode:
+	  case E_SImode:
 	    /* ??? If we knew that we are in the appropriate mode -
 	       single precision - we could use a reload pattern directly.  */
 	    return FPUL_REGS;

@@ -473,7 +473,7 @@ init_reg_sets_1 (void)
       CLEAR_HARD_REG_SET (ok_regs2);
       for (j = 0; j < FIRST_PSEUDO_REGISTER; j++)
 	if (!TEST_HARD_REG_BIT (fixed_nonglobal_reg_set, j)
-	    && HARD_REGNO_MODE_OK (j, (machine_mode) m))
+	    && targetm.hard_regno_mode_ok (j, (machine_mode) m))
 	  {
 	    SET_HARD_REG_BIT (ok_regs, j);
 	    if (!fixed_regs[j])
@@ -632,39 +632,35 @@ choose_hard_reg_mode (unsigned int regno ATTRIBUTE_UNUSED,
      held in REGNO.  If none, we look for the largest floating-point mode.
      If we still didn't find a valid mode, try CCmode.  */
 
-  for (mode = GET_CLASS_NARROWEST_MODE (MODE_INT);
-       mode != VOIDmode;
-       mode = GET_MODE_WIDER_MODE (mode))
+  FOR_EACH_MODE_IN_CLASS (mode, MODE_INT)
     if ((unsigned) hard_regno_nregs[regno][mode] == nregs
-	&& HARD_REGNO_MODE_OK (regno, mode)
-	&& (! call_saved || ! HARD_REGNO_CALL_PART_CLOBBERED (regno, mode))
+	&& targetm.hard_regno_mode_ok (regno, mode)
+	&& (!call_saved
+	    || !targetm.hard_regno_call_part_clobbered (regno, mode))
 	&& GET_MODE_SIZE (mode) > GET_MODE_SIZE (found_mode))
       found_mode = mode;
 
-  for (mode = GET_CLASS_NARROWEST_MODE (MODE_FLOAT);
-       mode != VOIDmode;
-       mode = GET_MODE_WIDER_MODE (mode))
+  FOR_EACH_MODE_IN_CLASS (mode, MODE_FLOAT)
     if ((unsigned) hard_regno_nregs[regno][mode] == nregs
-	&& HARD_REGNO_MODE_OK (regno, mode)
-	&& (! call_saved || ! HARD_REGNO_CALL_PART_CLOBBERED (regno, mode))
+	&& targetm.hard_regno_mode_ok (regno, mode)
+	&& (!call_saved
+	    || !targetm.hard_regno_call_part_clobbered (regno, mode))
 	&& GET_MODE_SIZE (mode) > GET_MODE_SIZE (found_mode))
       found_mode = mode;
 
-  for (mode = GET_CLASS_NARROWEST_MODE (MODE_VECTOR_FLOAT);
-       mode != VOIDmode;
-       mode = GET_MODE_WIDER_MODE (mode))
+  FOR_EACH_MODE_IN_CLASS (mode, MODE_VECTOR_FLOAT)
     if ((unsigned) hard_regno_nregs[regno][mode] == nregs
-	&& HARD_REGNO_MODE_OK (regno, mode)
-	&& (! call_saved || ! HARD_REGNO_CALL_PART_CLOBBERED (regno, mode))
+	&& targetm.hard_regno_mode_ok (regno, mode)
+	&& (!call_saved
+	    || !targetm.hard_regno_call_part_clobbered (regno, mode))
 	&& GET_MODE_SIZE (mode) > GET_MODE_SIZE (found_mode))
       found_mode = mode;
 
-  for (mode = GET_CLASS_NARROWEST_MODE (MODE_VECTOR_INT);
-       mode != VOIDmode;
-       mode = GET_MODE_WIDER_MODE (mode))
+  FOR_EACH_MODE_IN_CLASS (mode, MODE_VECTOR_INT)
     if ((unsigned) hard_regno_nregs[regno][mode] == nregs
-	&& HARD_REGNO_MODE_OK (regno, mode)
-	&& (! call_saved || ! HARD_REGNO_CALL_PART_CLOBBERED (regno, mode))
+	&& targetm.hard_regno_mode_ok (regno, mode)
+	&& (!call_saved
+	    || !targetm.hard_regno_call_part_clobbered (regno, mode))
 	&& GET_MODE_SIZE (mode) > GET_MODE_SIZE (found_mode))
       found_mode = mode;
 
@@ -676,8 +672,9 @@ choose_hard_reg_mode (unsigned int regno ATTRIBUTE_UNUSED,
     {
       mode = (machine_mode) m;
       if ((unsigned) hard_regno_nregs[regno][mode] == nregs
-	  && HARD_REGNO_MODE_OK (regno, mode)
-	  && (! call_saved || ! HARD_REGNO_CALL_PART_CLOBBERED (regno, mode)))
+	  && targetm.hard_regno_mode_ok (regno, mode)
+	  && (!call_saved
+	      || !targetm.hard_regno_call_part_clobbered (regno, mode)))
 	return mode;
     }
 
@@ -1241,7 +1238,7 @@ simplifiable_subregs (const subreg_shape &shape)
     {
       simplifiable_subreg *info = new simplifiable_subreg (shape);
       for (unsigned int i = 0; i < FIRST_PSEUDO_REGISTER; ++i)
-	if (HARD_REGNO_MODE_OK (i, shape.inner_mode)
+	if (targetm.hard_regno_mode_ok (i, shape.inner_mode)
 	    && simplify_subreg_regno (i, shape.inner_mode, shape.offset,
 				      shape.outer_mode) >= 0)
 	  SET_HARD_REG_BIT (info->simplifiable_regs, i);
@@ -1356,7 +1353,7 @@ init_subregs_of_mode (void)
 	  df_ref def;
 	  FOR_EACH_INSN_DEF (def, insn)
 	    if (DF_REF_FLAGS_IS_SET (def, DF_REF_PARTIAL)
-		&& df_read_modify_subreg_p (DF_REF_REG (def)))
+		&& read_modify_subreg_p (DF_REF_REG (def)))
 	      record_subregs_of_mode (DF_REF_REG (def), true);
 	}
 }

@@ -34,6 +34,7 @@
 #include "tree-pass.h"
 #include "rtl-iter.h"
 #include "cfgrtl.h"
+#include "target.h"
 
 /* The following code does forward propagation of hard register copies.
    The object is to eliminate as many dependencies as possible, so that
@@ -372,7 +373,7 @@ static bool
 mode_change_ok (machine_mode orig_mode, machine_mode new_mode,
 		unsigned int regno ATTRIBUTE_UNUSED)
 {
-  if (GET_MODE_SIZE (orig_mode) < GET_MODE_SIZE (new_mode))
+  if (partial_subreg_p (orig_mode, new_mode))
     return false;
 
 #ifdef CANNOT_CHANGE_MODE_CLASS
@@ -392,8 +393,8 @@ maybe_mode_change (machine_mode orig_mode, machine_mode copy_mode,
 		   machine_mode new_mode, unsigned int regno,
 		   unsigned int copy_regno ATTRIBUTE_UNUSED)
 {
-  if (GET_MODE_SIZE (copy_mode) < GET_MODE_SIZE (orig_mode)
-      && GET_MODE_SIZE (copy_mode) < GET_MODE_SIZE (new_mode))
+  if (partial_subreg_p (copy_mode, orig_mode)
+      && partial_subreg_p (copy_mode, new_mode))
     return NULL_RTX;
 
   /* Avoid creating multiple copies of the stack pointer.  Some ports
@@ -419,7 +420,7 @@ maybe_mode_change (machine_mode orig_mode, machine_mode copy_mode,
       offset = ((WORDS_BIG_ENDIAN ? wordoffset : 0)
 		+ (BYTES_BIG_ENDIAN ? byteoffset : 0));
       regno += subreg_regno_offset (regno, orig_mode, offset, new_mode);
-      if (HARD_REGNO_MODE_OK (regno, new_mode))
+      if (targetm.hard_regno_mode_ok (regno, new_mode))
 	return gen_raw_REG (new_mode, regno);
     }
   return NULL_RTX;
@@ -1055,7 +1056,8 @@ copyprop_hardreg_forward_1 (basic_block bb, struct value_data *vd)
 				  regs_invalidated_by_call);
 	  for (regno = 0; regno < FIRST_PSEUDO_REGISTER; regno++)
 	    if ((TEST_HARD_REG_BIT (regs_invalidated_by_this_call, regno)
-		 || HARD_REGNO_CALL_PART_CLOBBERED (regno, vd->e[regno].mode))
+		 || (targetm.hard_regno_call_part_clobbered
+		     (regno, vd->e[regno].mode)))
 		&& (regno < set_regno || regno >= set_regno + set_nregs))
 	      kill_value_regno (regno, 1, vd);
 
@@ -1076,8 +1078,8 @@ copyprop_hardreg_forward_1 (basic_block bb, struct value_data *vd)
       /* If a noop move is using narrower mode than we have recorded,
 	 we need to either remove the noop move, or kill_set_value.  */
       if (noop_p
-	  && (GET_MODE_BITSIZE (GET_MODE (SET_DEST (set)))
-	      < GET_MODE_BITSIZE (vd->e[REGNO (SET_DEST (set))].mode)))
+	  && partial_subreg_p (GET_MODE (SET_DEST (set)),
+			       vd->e[REGNO (SET_DEST (set))].mode))
 	{
 	  if (noop_move_p (insn))
 	    {
