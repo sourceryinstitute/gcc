@@ -81,7 +81,7 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[]){
     fprintf(stderr, "ISO_Fortran_binding.c: CFI_address: ERROR BASE ADDRESS NULL (%d).\n", CFI_ERROR_BASE_ADDR_NULL);
     exit(EXIT_FAILURE);
   }
-  return *dv->base_addr;
+  return dv->base_addr;
 }
 
 void main(){
@@ -92,12 +92,12 @@ void main(){
   dv = malloc(sizeof(CFI_CDESC_TYPE_T(5, float)));
   dv->base_addr = malloc(sizeof(float));
   *dv->base_addr = 3.14159;
-  printf("%f\n",*dv->base_addr);
 
   subscripts[0] = 4;
   subscripts[1] = 9;
   address = CFI_address(dv, subscripts);
-  printf("%f\n", address);
+  printf("%f\n", *address);
 
+  free(dv->base_addr);
   free(dv);
 }
