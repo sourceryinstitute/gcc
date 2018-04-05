@@ -92,19 +92,14 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[]){
   else{
     CFI_index_t tmp_index = 1;
     CFI_index_t index = subscripts[0];
-    char *base_addr = dv->base_addr;
-    void *base_addr2;
+    void *base_addr;
 
     for (int i = 0; i < rank - 1; i++){
       tmp_index *= subscripts[i+1]*dv->dim[i].extent * dv->dim[i].sm;
       index += tmp_index;
-      printf("%d\n", base_addr);
-      printf("%d\n", base_addr + index);
-      printf("%d\n", (char*) dv->base_addr + index);
-      base_addr2 = (char*) dv->base_addr + index;
-      printf("%d\n", (char*) base_addr2);
     }
-    return base_addr2;//dv->base_addr;
+    base_addr = (char*) dv->base_addr + index;
+    return base_addr;
   }
 }
 
@@ -116,7 +111,7 @@ void main(){
 
   dv = malloc(sizeof(CFI_CDESC_TYPE_T(2, float)));
   dv->base_addr = malloc(sizeof(float));
-  *dv->base_addr = 1;
+  *dv->base_addr = 1.5;
   dv->rank = 2;
   dv->dim[0].lower_bound = 1;
   dv->dim[0].extent = 2;
@@ -128,7 +123,7 @@ void main(){
 
   subscripts[0] = 0;
   subscripts[1] = 2;
-  address = (float*)CFI_address(dv, subscripts);
+  address = CFI_address(dv, subscripts);
   printf("%d\n", (char*)address);
   printf("%d, %d, %d\n", sizeof(subscripts), sizeof(CFI_index_t), sizeof(test));
 
