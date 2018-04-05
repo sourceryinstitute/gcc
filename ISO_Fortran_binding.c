@@ -73,58 +73,105 @@
 //   CFI_dim_t dim[];
 // }
 // CFI_cdesc_t;
+/* Definitions */
+#define type(x) _Generic((x), \
+  int: "int", \
+  float: "float", \
+  double: "double", \
+  ptrdiff_t: "ptrdiff_t", \
+  size_t: "size_t", \
+  int8_t: "int8_t", \
+  int *: "int *", \
+  float *: "float *", \
+  double *: "double *", \
+  ptrdiff_t *: "ptrdiff_t *", \
+  size_t *: "size_t *", \
+  int8_t *: "int8_t *", \
+  default: "other")
 
 /* Functions */
 
 void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[]){
-  // dv should be allocated.
+
+  // C Descriptor should be allocated.
   if (dv == NULL){
-    fprintf(stderr, "ISO_Fortran_binding.c: CFI_address: NULL C Descriptor (%d).\n", CFI_ERROR_MEM_ALLOCATION);
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_address: NULL C Descriptor. (Error No. %d).\n", CFI_ERROR_MEM_ALLOCATION);
+    exit(EXIT_FAILURE);
+  }
+
+  // Base address of C Descriptor should be allocated.
+  if (dv->base_addr == NULL){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_address: NULL base address of C Descriptor. (Error No. %d).\n", CFI_ERROR_BASE_ADDR_NULL);
     exit(EXIT_FAILURE);
   }
 
   CFI_rank_t rank = dv->rank;
+
   // dv is a scalar.
   if (rank == 0){
+    // Base address is the C Descriptor base address.
     return dv->base_addr;
   }
   // dv is not a scalar.
   else{
-    CFI_index_t tmp_index = 1;
-    CFI_index_t index = subscripts[0];
+    // Base address is the C address of the element of the object specified by
+    // subscripts.
     void *base_addr;
-
-    for (int i = 0; i < rank - 1; i++){
-      tmp_index *= subscripts[i+1]*dv->dim[i].extent * dv->dim[i].sm;
+    // We assume column major order as that is how fortran stores arrays.
+    // We calculate the memory address of the specified element via the
+    // canonical array dimension reduction map and multiplying by the memory
+    // stride.
+    CFI_index_t index = subscripts[0];
+    // Make sure the first subscript is in-bounds.
+    if (index > dv->dim[0].extent - dv->dim[0].lower_bound){
+      fprintf(stderr, "ISO_Fortran_binding.c: CFI_address: subscripts[%d] = %d, is out of bounds. It must not be greater than dv->dim[%d].extent - dv->dim[%d].lower_bound = %d - %d = %d. (Error No. %d).\n", 0, subscripts[0], 0, 0, dv->dim[0].extent, dv->dim[0].lower_bound, dv->dim[0].extent - dv->dim[0].lower_bound, CFI_ERROR_OUT_OF_BOUNDS);
+      exit(EXIT_FAILURE);
+    }
+    // Start calculating the memory offset.
+    CFI_index_t tmp_index = 1;
+    for (int i = 1; i < rank; i++){
+      // Makre sure the subscripts are in-bounds.
+      if (subscripts[i] > dv->dim[i].extent - dv->dim[i].lower_bound){
+        fprintf(stderr, "ISO_Fortran_binding.c: CFI_address: subscripts[%d] = %d, is out of bounds. It must not be greater than dv->dim[%d].extent - dv->dim[%d].lower_bound = %d - %d = %d. (Error No. %d).\n", i, subscripts[i], i, i, dv->dim[i].extent, dv->dim[i].lower_bound, dv->dim[i].extent - dv->dim[i].lower_bound, CFI_ERROR_OUT_OF_BOUNDS);
+        exit(EXIT_FAILURE);
+      }
+      // Find memory location of the subscripted item by mapping the subscripts to a 1D array while taking the memory stride into account.
+      tmp_index *= subscripts[i] * dv->dim[i-1].extent * dv->dim[i-1].sm;
       index += tmp_index;
     }
-    base_addr = (char*) dv->base_addr + index;
+    // There's no way in C to do general arithmetic on a void pointer so we
+    // cast to a char pointer, do the arithmetic and cast back to a void
+    // pointer.
+    base_addr = (char *) dv->base_addr + index;
     return base_addr;
   }
 }
 
 void main(){
-  CFI_CDESC_TYPE_T(2, float) *dv;
+  CFI_CDESC_T(2) *dv;
   CFI_index_t subscripts[2];
   CFI_index_t test[0];
-  float *address;
+  CFI_index_t *address;
 
-  dv = malloc(sizeof(CFI_CDESC_TYPE_T(2, float)));
-  dv->base_addr = malloc(sizeof(float));
-  *dv->base_addr = 1.5;
+  dv = malloc(sizeof(CFI_CDESC_T(2)));
+  dv->base_addr = malloc(sizeof(CFI_index_t));
+  *(CFI_index_t*)dv->base_addr = 1;
+  printf("%s\n", type(*dv->base_addr));
+  printf("%ld\n", dv->base_addr);
   dv->rank = 2;
   dv->dim[0].lower_bound = 1;
-  dv->dim[0].extent = 2;
+  dv->dim[0].extent = 3;
   dv->dim[0].sm = 1;
   dv->dim[1].lower_bound = 1;
   dv->dim[1].extent = 3;
   dv->dim[1].sm = 1;
 
 
-  subscripts[0] = 0;
-  subscripts[1] = 2;
-  address = CFI_address(dv, subscripts);
+  subscripts[0] = 1;
+  subscripts[1] = 1;
+  address = (CFI_index_t*) CFI_address(dv, subscripts);
   printf("%d\n", (char*)address);
+  printf("%ld\n", *address);
   printf("%d, %d, %d\n", sizeof(subscripts), sizeof(CFI_index_t), sizeof(test));
 
   free(dv->base_addr);
