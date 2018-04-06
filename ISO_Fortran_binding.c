@@ -159,6 +159,34 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[]){
   }
 }
 
+int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[], const CFI_index_t upper_bounds[], size_t elem_len){
+
+  // C Descriptor should be allocated.
+  if (dv == NULL){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_allocate: NULL C Descriptor. (Error No. %d).\n", CFI_ERROR_MEM_ALLOCATION);
+    exit(EXIT_FAILURE);
+  }
+
+  // Base address of C Descriptor should be NULL.
+  if (dv->base_addr != NULL){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_allocate: Base address of C Descriptor should be NULL. (Error No. %d).\n", CFI_ERROR_BASE_ADDR_NOT_NULL);
+    exit(EXIT_FAILURE);
+  }
+
+  // The C Descriptor must be for an allocatable or pointer object.
+  if(dv->attribute != CFI_attribute_pointer || dv->attribute != CFI_attribute_allocatable){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_allocate: The object of the C Descriptor must be a pointer or allocatable variable. (Error No. %d).\n", CFI_INVALID_ATTRIBUTE);
+    exit(EXIT_FAILURE);
+  }
+
+  // dont know exactly what to do with this information but standard has conditional behaviour if this is the case.
+  if (dv->type != CFI_type_char || dv->type != CFI_type_ucs4_char || dv->type != CFI_type_signed_char){
+
+  }
+
+  // have a case-switch table that allocates the memory according to the size of the data type and the number of elements in the array
+}
+
 void main(){
   CFI_CDESC_T(2) *dv;
   CFI_index_t subscripts[2];
