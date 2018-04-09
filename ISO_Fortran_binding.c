@@ -91,11 +91,116 @@
 
 /* Functions */
 
+int CFI_establish(CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute, CFI_type_t type, size_t elem_len, CFI_rank_t rank, const CFI_index_t extents[]){
+
+  int error_indicator;
+
+  // C Descriptor should be allocated.
+  if (dv == NULL){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: NULL C Descriptor. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
+    exit(EXIT_FAILURE);
+  }
+
+  // If the C Descriptor has CFI_attribute_other it must be suitable for other functions.
+  if (dv->attribute == CFI_attribute_other){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: C Descriptor with CFI_attribute_other must be suitable for other functions. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
+    exit(EXIT_FAILURE);
+  }
+
+  // C Descriptor must be big enough to hold an object of a specified rank.
+  if (sizeof(dv) < sizeof(CFI_CDESC_T(rank))){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: C Descriptor is not big enough to hold an object of rank %d. (Error No. %d).\n", rank, CFI_INVALID_DESCRIPTOR);
+    exit(EXIT_FAILURE);
+  }
+
+  // C Descriptor must not be an allocated allocatable object.
+  if (dv->base_addr != NULL && dv->attribute == CFI_attribute_allocatable){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: C Descriptor must not be for an allocated allocatable object. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
+    exit(EXIT_FAILURE);
+  }
+
+  // base_addr should be NULL or an appropriately aligned address for an object of the specified type.
+  // If it is not NULL then we must invert the relationship in ISO_Fortran_binding.h to find the number of bytes in the data type.
+  if (base_addr != NULL){
+    // Check for integer data types.
+    int type_num = (type - CFI_type_Integer) >> CFI_type_kind_shift;
+    // This is only true for integer data types.
+    if (type_num == 1 || type_num == 2 || type_num == 4 || type_num == 8 || type_num == 16){
+      if (sizeof(base_addr) != type_num){
+        fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
+        exit(EXIT_FAILURE);
+      }
+    }
+    else{
+      // Check for real data types.
+      type_num = (type - CFI_type_Real) >> CFI_type_kind_shift;
+      // This is only true for real data types.
+      if (type_num == 4 || type_num == 8 || type_num == 10 || type_num 16){
+        // REAL(10) has byte length of 64 bits. All the others have the same number of bytes as the data type number.
+        if (type_num == 10){
+          if (sizeof(base_addr) != 64){
+            fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
+            exit(EXIT_FAILURE);
+          }
+        }
+        // Other REAL data types.
+        else{
+          if (sizeof(base_addr) != type_num){
+            fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
+            exit(EXIT_FAILURE);
+          }
+        }
+      }
+      else{
+        // Check for complex data types.
+        type_num = (type - CFI_type_Complex) >> CFI_type_kind_shift;
+        // This is only true for real data types.
+        if(type_num == 4 || type_num == 8 || type_num == 10 || type_num 16){
+          // COMPLEX(10) has byte length of 2*64 bits. All the others have twice the number of bytes as the data type number.
+          if (type_num == 10){
+            if (sizeof(base_addr) != 128){
+              fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
+              exit(EXIT_FAILURE);
+            }
+          }
+          else{
+            // Other COMPLEX data types.
+            if (sizeof(base_addr) != 2*type_num){
+              fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
+              exit(EXIT_FAILURE);
+            }
+          }
+        }
+        // Check for logical data type.
+        else if(sizeof(base_addr) != (type - CFI_type_Logical) >> CFI_type_kind_shift){
+          fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
+          exit(EXIT_FAILURE);
+        }
+        else if(sizeof(base_addr) != (type - CFI_type_Character) >> CFI_type_kind_shift){
+          fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
+          exit(EXIT_FAILURE);
+        }
+        else{
+          fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
+          exit(EXIT_FAILURE);
+        }
+      }
+    }
+  }
+  else{
+    // base_addr is NULL
+  }
+
+
+
+  return error_indicator;
+}
+
 void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[]){
 
   // C Descriptor should be allocated.
   if (dv == NULL){
-    fprintf(stderr, "ISO_Fortran_binding.c: CFI_address: NULL C Descriptor. (Error No. %d).\n", CFI_ERROR_MEM_ALLOCATION);
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_address: NULL C Descriptor. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
     exit(EXIT_FAILURE);
   }
 
@@ -163,7 +268,7 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[], const CFI_i
 
   // C Descriptor should be allocated.
   if (dv == NULL){
-    fprintf(stderr, "ISO_Fortran_binding.c: CFI_allocate: NULL C Descriptor. (Error No. %d).\n", CFI_ERROR_MEM_ALLOCATION);
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_allocate: NULL C Descriptor. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
     exit(EXIT_FAILURE);
   }
 
