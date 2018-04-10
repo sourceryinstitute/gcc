@@ -114,8 +114,13 @@ int CFI_establish(CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute, C
   }
 
   // C Descriptor must not be an allocated allocatable object.
-  if (dv->base_addr != NULL && dv->attribute == CFI_attribute_allocatable){
-    fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: C Descriptor must not be for an allocated allocatable object. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
+  bool alloc_flag = (dv->base_addr != NULL && dv->attribute == CFI_attribute_allocatable);
+  if (alloc_flag){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: If the C Descriptor is for an allocatable variable, its base address must be NULL. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
+    exit(EXIT_FAILURE);
+  }
+  else if (!alloc_flag){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: If the base address for a C Descriptor is NULL, its attribute should be for an allocatable variable. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
     exit(EXIT_FAILURE);
   }
 
@@ -172,18 +177,32 @@ int CFI_establish(CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute, C
           }
         }
         // Check for logical data type.
-        else if(sizeof(base_addr) != (type - CFI_type_Logical) >> CFI_type_kind_shift){
-          fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
-          exit(EXIT_FAILURE);
-        }
-        else if(sizeof(base_addr) != (type - CFI_type_Character) >> CFI_type_kind_shift){
-          fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
-          exit(EXIT_FAILURE);
-        }
         else{
-          fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
-          exit(EXIT_FAILURE);
+          type_num = (type - CFI_type_Logical) >> CFI_type_kind_shift);
+          if (type_num == 1 && sizeof(base_addr) != type_num){
+            fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
+            exit(EXIT_FAILURE);
+          }
+          else{
+            type_num = (type - CFI_type_Character) >> CFI_type_kind_shift);
+            if(type_num == 1 || type_num == 4){
+              if(sizeof(base_addr) != type_num){
+                fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
+                exit(EXIT_FAILURE);
+              }
+            }
+          }
         }
+      }
+    }
+    if (type == CFI_type_other || type == CFI_type_struct){
+      if(elem_len <= 0){
+        fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: C Descriptors of type other or struct, %d, must have greater than zero element length. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
+        exit(EXIT_FAILURE);
+      }
+      else if (sizeof(base_addr) != elem_len){
+        fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptors of type other and struct, %d, must be the same size in bytes as the specified element length. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
+        exit(EXIT_FAILURE);
       }
     }
   }

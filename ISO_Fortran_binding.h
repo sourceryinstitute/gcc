@@ -156,7 +156,7 @@ int CFI_setpointer (CFI_cdesc_t *, CFI_cdesc_t *, const CFI_index_t []);
 #define CFI_type_char (CFI_type_Character + (1 << CFI_type_kind_shift))
 #define CFI_type_ucs4_char (CFI_type_Character + (4 << CFI_type_kind_shift))
 
-/* TS 29113 types.  */
+/* C-Fortran Interoperability types. */
 
 #define CFI_type_signed_char (CFI_type_Integer + (1 << CFI_type_kind_shift))
 #define CFI_type_short (CFI_type_Integer + (2 << CFI_type_kind_shift))
