@@ -218,7 +218,12 @@ int CFI_establish(CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute, C
     }
   }
 
-  dv->elem_len = elem_len;
+  if (type_size == -1){
+    dv->elem_len = elem_len;
+  }
+  else{
+    dv->elem_len = type_size;
+  }
   dv->version = CFI_VERSION;
   dv->rank = rank;
   dv->attribute = attribute;
