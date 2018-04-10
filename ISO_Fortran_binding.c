@@ -93,126 +93,144 @@
 
 int CFI_establish(CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute, CFI_type_t type, size_t elem_len, CFI_rank_t rank, const CFI_index_t extents[]){
 
-  int error_indicator;
-
   // C Descriptor should be allocated.
   if (dv == NULL){
     fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: NULL C Descriptor. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
-    exit(EXIT_FAILURE);
-  }
-
-  // If the C Descriptor has CFI_attribute_other it must be suitable for other functions.
-  if (dv->attribute == CFI_attribute_other){
-    fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: C Descriptor with CFI_attribute_other must be suitable for other functions. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
-    exit(EXIT_FAILURE);
+    return CFI_INVALID_DESCRIPTOR;
   }
 
   // C Descriptor must be big enough to hold an object of a specified rank.
   if (sizeof(dv) < sizeof(CFI_CDESC_T(rank))){
     fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: C Descriptor is not big enough to hold an object of rank %d. (Error No. %d).\n", rank, CFI_INVALID_DESCRIPTOR);
-    exit(EXIT_FAILURE);
+    return CFI_INVALID_DESCRIPTOR;
   }
 
-  // C Descriptor must not be an allocated allocatable object.
-  bool alloc_flag = (dv->base_addr != NULL && dv->attribute == CFI_attribute_allocatable);
-  if (alloc_flag){
-    fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: If the C Descriptor is for an allocatable variable, its base address must be NULL. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
-    exit(EXIT_FAILURE);
+  // C Descriptor must not be an allocated allocatable.
+  if (dv->base_addr != NULL && dv->attribute == CFI_attribute_allocatable){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: If the C Descriptor represents an allocatable variable, dv->attribute == CFI_attribute_allocatable, its base address must be NULL, dv->base_addr == NULL. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
+    return CFI_INVALID_DESCRIPTOR;
   }
-  else if (!alloc_flag){
-    fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: If the base address for a C Descriptor is NULL, its attribute should be for an allocatable variable. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
-    exit(EXIT_FAILURE);
-  }
+
+  int type_size = 0;
 
   // base_addr should be NULL or an appropriately aligned address for an object of the specified type.
-  // If it is not NULL then we must invert the relationship in ISO_Fortran_binding.h to find the number of bytes in the data type.
+  // If it is not NULL the types and elem_len must be consitent with the type and type parameters of the Fortran data.
+  // In order to find out if that's the case, we must invert the type definitions in ISO_Fortran_binding.h. The answer tells us the size in bytes of each data type element.
   if (base_addr != NULL){
     // Check for integer data types.
-    int type_num = (type - CFI_type_Integer) >> CFI_type_kind_shift;
+    type_size = (type - CFI_type_Integer) >> CFI_type_kind_shift;
     // This is only true for integer data types.
-    if (type_num == 1 || type_num == 2 || type_num == 4 || type_num == 8 || type_num == 16){
-      if (sizeof(base_addr) != type_num){
-        fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
-        exit(EXIT_FAILURE);
+    if (type_size == 1 || type_size == 2 || type_size == 4 || type_size == 8 || type_size == 16){
+      if (sizeof(base_addr) != type_size){
+        fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Byte size of Base address, base_addr, must be equal to the byte size, %d, of the data type, %d. (Error No. %d).\n", type_size, type, CFI_INVALID_ELEM_LEN);
+        return CFI_INVALID_ELEM_LEN;
       }
     }
+    // We use else because we need to redefine type_size using another CFI_type.
     else{
       // Check for real data types.
-      type_num = (type - CFI_type_Real) >> CFI_type_kind_shift;
+      type_size = (type - CFI_type_Real) >> CFI_type_kind_shift;
       // This is only true for real data types.
-      if (type_num == 4 || type_num == 8 || type_num == 10 || type_num 16){
-        // REAL(10) has byte length of 64 bits. All the others have the same number of bytes as the data type number.
-        if (type_num == 10){
-          if (sizeof(base_addr) != 64){
-            fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
-            exit(EXIT_FAILURE);
+      if (type_size == 4 || type_size == 8 || type_size == 10 || type_size 16){
+        // REAL(10) has byte length of 64 bytes. All the others have the same number of bytes as the data type number.
+        if (type_size == 10){
+          type_size = 64;
+          if (sizeof(base_addr) != type_size){
+            fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Byte size of Base address, base_addr, must be equal to the byte size, %d, of the data type, %d. (Error No. %d).\n", type_size, type, CFI_INVALID_ELEM_LEN);
+            return CFI_INVALID_ELEM_LEN;
           }
         }
         // Other REAL data types.
         else{
-          if (sizeof(base_addr) != type_num){
-            fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
-            exit(EXIT_FAILURE);
+          if (sizeof(base_addr) != type_size){
+            fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Byte size of Base address, base_addr, must be equal to the byte size, %d, of the data type, %d. (Error No. %d).\n", type_size, type, CFI_INVALID_ELEM_LEN);
+            return CFI_INVALID_ELEM_LEN;
           }
         }
       }
+      // We use else because we need to redefine type_size using another CFI_type.
       else{
         // Check for complex data types.
-        type_num = (type - CFI_type_Complex) >> CFI_type_kind_shift;
-        // This is only true for real data types.
-        if(type_num == 4 || type_num == 8 || type_num == 10 || type_num 16){
-          // COMPLEX(10) has byte length of 2*64 bits. All the others have twice the number of bytes as the data type number.
-          if (type_num == 10){
-            if (sizeof(base_addr) != 128){
-              fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
-              exit(EXIT_FAILURE);
+        type_size = (type - CFI_type_Complex) >> CFI_type_kind_shift;
+        // This is only true for complex data types.
+        if(type_size == 4 || type_size == 8 || type_size == 10 || type_size 16){
+          // COMPLEX(10) has byte length of 2*64 bytes. All the others have twice the number of bytes as the data type number.
+          if (type_size == 10){
+            type_size = 128;
+            if (sizeof(base_addr) != type_size){
+              fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Byte size of Base address, base_addr, must be equal to the byte size, %d, of the data type, %d. (Error No. %d).\n", type_size, type, CFI_INVALID_ELEM_LEN);
+              return CFI_INVALID_ELEM_LEN;
             }
           }
           else{
+            type_size = 2*type_size;
             // Other COMPLEX data types.
-            if (sizeof(base_addr) != 2*type_num){
-              fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
-              exit(EXIT_FAILURE);
+            if (sizeof(base_addr) != type_size){
+              fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Byte size of Base address, base_addr, must be equal to the byte size, %d, of the data type, %d. (Error No. %d).\n", type_size, type, CFI_INVALID_ELEM_LEN);
+              return CFI_INVALID_ELEM_LEN;
             }
           }
         }
-        // Check for logical data type.
+        // We use else because we need to redefine type_size using another CFI_type.
         else{
-          type_num = (type - CFI_type_Logical) >> CFI_type_kind_shift);
-          if (type_num == 1 && sizeof(base_addr) != type_num){
-            fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
-            exit(EXIT_FAILURE);
+          // Check for logical data type.
+          type_size = (type - CFI_type_Logical) >> CFI_type_kind_shift);
+          if (type_size == 1 && sizeof(base_addr) != type_size){
+            fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Byte size of Base address, base_addr, must be equal to the byte size, %d, of the data type, %d. (Error No. %d).\n", type_size, type, CFI_INVALID_ELEM_LEN);
+            return CFI_INVALID_ELEM_LEN;
           }
+          // We use else because we need to redefine type_size using another CFI_type.
           else{
-            type_num = (type - CFI_type_Character) >> CFI_type_kind_shift);
-            if(type_num == 1 || type_num == 4){
-              if(sizeof(base_addr) != type_num){
-                fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptor must be aligned for an object of the specified type %d. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
-                exit(EXIT_FAILURE);
+            type_size = (type - CFI_type_Character) >> CFI_type_kind_shift);
+            if(type_size == 1 || type_size == 4){
+              if(sizeof(base_addr) != type_size){
+                fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Byte size of Base address, base_addr, must be equal to the byte size, %d, of the data type, %d. (Error No. %d).\n", type_size, type, CFI_INVALID_ELEM_LEN);
+                return CFI_INVALID_ELEM_LEN;
+              }
+            }
+            // We've checked all normal types and none match.
+            else{
+              // Clever trick so we don't have to evaluate a complicated if later on.
+              type_size = -1;
+              if (type == CFI_type_other || type == CFI_type_struct){
+                if(elem_len <= 0 || sizeof(base_addr) != elem_len){
+                  fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Byte size of Base address, base_addr, must be equal to the byte size, %d, of the data type, %d. (Error No. %d).\n", type_size, type, CFI_INVALID_ELEM_LEN);
+                  return CFI_INVALID_ELEM_LEN;
+                }
+              }
+              // We've checked all types and none match.
+              else {
+                fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Invalid data type, %d. (Error No. %d).\n", type, CFI_INVALID_TYPE);
+                return CFI_INVALID_TYPE;
               }
             }
           }
         }
       }
     }
-    if (type == CFI_type_other || type == CFI_type_struct){
-      if(elem_len <= 0){
-        fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: C Descriptors of type other or struct, %d, must have greater than zero element length. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
-        exit(EXIT_FAILURE);
-      }
-      else if (sizeof(base_addr) != elem_len){
-        fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Base address of C Descriptors of type other and struct, %d, must be the same size in bytes as the specified element length. (Error No. %d).\n", type, CFI_INVALID_DESCRIPTOR);
-        exit(EXIT_FAILURE);
-      }
+  }
+  // base_addr is NULL
+  else{
+    // If C Descripor will be established as an unallocated allocatable, attribute must be CFI_attribute_allocatable.
+    if (attribute != CFI_attribute_allocatable || attribute != CFI_attribute_other){
+      fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: If the base address is NULL, base_addr == NULL, then the attribute must be for an allocatable or other, attribute == CFI_attribute_allocatable || attribute == CFI_attribute_other. (Error No. %d).\n", CFI_INVALID_ATTRIBUTE);
+      return CFI_INVALID_ATTRIBUTE;
     }
   }
-  else{
-    // base_addr is NULL
+
+  dv->elem_len = elem_len;
+  dv->version = CFI_VERSION;
+  dv->rank = rank;
+  dv->attribute = attribute;
+  dv->type = type;
+
+  if (rank > 0 && base_addr != NULL){
+    for (int i == 0; i < rank; i++){
+      dv->dim[i].extent = extents[i];
+    }
   }
 
-
-
-  return error_indicator;
+  return CFI_SUCCESS;
 }
 
 void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[]){
