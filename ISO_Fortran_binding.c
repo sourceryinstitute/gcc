@@ -230,6 +230,10 @@ int CFI_establish(CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute, C
   dv->type = type;
 
   if (rank > 0 && base_addr != NULL){
+    if(extents == NULL){
+      fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Extents must not be NULL, extents != NULL. (Error No. %d).\n", CFI_INVALID_EXTENT);
+      return CFI_INVALID_ATTRIBUTE;
+    }
     for (int i == 0; i < rank; i++){
       dv->dim[i].extent = extents[i];
     }
@@ -303,6 +307,27 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[]){
     // pointer.
     base_addr = (char *) dv->base_addr + index;
     return base_addr;
+  }
+}
+
+int CFI_is_contiguous(cons CFI_cdesc_t *dv){
+  if (dv->base_addr == NULL){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_is_contiguous: NULL base address of C Descriptor. (Error No. %d).\n", CFI_ERROR_BASE_ADDR_NULL);
+    exit(EXIT_FAILURE);
+  }
+
+  if (dv->rank == 0){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_is_contiguous: C Descriptor must describe an array (rank > 0). (Error No. %d).\n", CFI_INVALID_RANK);
+    exit(EXIT_FAILURE);
+  }
+
+  // There is no guarantee other arrays are contiguous.
+  if(dv->attribute == CFI_attribute_pointer){
+    return 0;
+  }
+  // Allocatable, assume shape and assumed size arrays are always contiguous.
+  else{
+    return 1;
   }
 }
 
