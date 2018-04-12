@@ -131,7 +131,7 @@ int CFI_establish(CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute, C
       // Check for real data types.
       type_size = (type - CFI_type_Real) >> CFI_type_kind_shift;
       // This is only true for real data types.
-      if (type_size == 4 || type_size == 8 || type_size == 10 || type_size 16){
+      if (type_size == 4 || type_size == 8 || type_size == 10 || type_size == 16){
         // REAL(10) has byte length of 64 bytes. All the others have the same number of bytes as the data type number.
         if (type_size == 10){
           type_size = 64;
@@ -153,7 +153,7 @@ int CFI_establish(CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute, C
         // Check for complex data types.
         type_size = (type - CFI_type_Complex) >> CFI_type_kind_shift;
         // This is only true for complex data types.
-        if(type_size == 4 || type_size == 8 || type_size == 10 || type_size 16){
+        if(type_size == 4 || type_size == 8 || type_size == 10 || type_size == 16){
           // COMPLEX(10) has byte length of 2*64 bytes. All the others have twice the number of bytes as the data type number.
           if (type_size == 10){
             type_size = 128;
@@ -174,14 +174,14 @@ int CFI_establish(CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute, C
         // We use else because we need to redefine type_size using another CFI_type.
         else{
           // Check for logical data type.
-          type_size = (type - CFI_type_Logical) >> CFI_type_kind_shift);
+          type_size = (type - CFI_type_Logical) >> CFI_type_kind_shift;
           if (type_size == 1 && sizeof(base_addr) != type_size){
             fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Byte size of Base address, base_addr, must be equal to the byte size, %d, of the data type, %d. (Error No. %d).\n", type_size, type, CFI_INVALID_ELEM_LEN);
             return CFI_INVALID_ELEM_LEN;
           }
           // We use else because we need to redefine type_size using another CFI_type.
           else{
-            type_size = (type - CFI_type_Character) >> CFI_type_kind_shift);
+            type_size = (type - CFI_type_Character) >> CFI_type_kind_shift;
             if(type_size == 1 || type_size == 4){
               if(sizeof(base_addr) != type_size){
                 fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Byte size of Base address, base_addr, must be equal to the byte size, %d, of the data type, %d. (Error No. %d).\n", type_size, type, CFI_INVALID_ELEM_LEN);
@@ -234,8 +234,65 @@ int CFI_establish(CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute, C
       fprintf(stderr, "ISO_Fortran_binding.c: CFI_establish: Extents must not be NULL, extents != NULL. (Error No. %d).\n", CFI_INVALID_EXTENT);
       return CFI_INVALID_ATTRIBUTE;
     }
-    for (int i == 0; i < rank; i++){
+    for (int i = 0; i < rank; i++){
       dv->dim[i].extent = extents[i];
+    }
+  }
+
+  return CFI_SUCCESS;
+}
+
+int CFI_setpointer(CFI_cdesc_t *result, CFI_cdesc_t *source, const CFI_index_t lower_bounds[]){
+
+  // If source is NULL, the result is a C Descriptor that describes a disassociated pointer.
+  if (source == NULL){
+    result->base_addr = NULL;
+    result->version = CFI_VERSION;
+    result->attribute = CFI_attribute_pointer;
+  }
+  // If source is a disassociated pointer, the result is a C Descriptor that describes a disassociated pointer but with the characteristics of source.
+  else if (source->base_addr == NULL && source->attribute == CFI_attribute_pointer){
+    result->base_addr = NULL;
+    result->elem_len = source->elem_len;
+    result->version = source->version;
+    result->rank = source->rank;
+    result->attribute = source->attribute;
+    result->type = source->type;
+    result->offset = source->offset;
+    for (int i = 0; i < source->rank; i++){
+      result->dim[i].lower_bound = source->dim[i].lower_bound;
+      result->dim[i].extent = source->dim[i].extent;
+      result->dim[i].sm = source->dim[i].sm;
+    }
+  }
+  else{
+    if (source->rank > 0 && lower_bounds != NULL){
+      result->base_addr = source->base_addr;
+      result->elem_len = source->elem_len;
+      result->version = source->version;
+      result->rank = source->rank;
+      result->attribute = source->attribute;
+      result->type = source->type;
+      result->offset = source->offset;
+      for (int i = 0; i < source->rank; i++){
+        result->dim[i].lower_bound = lower_bounds[i];
+        result->dim[i].extent = source->dim[i].extent;
+        result->dim[i].sm = source->dim[i].sm;
+      }
+    }
+    else{
+      result->base_addr = source->base_addr;
+      result->elem_len = source->elem_len;
+      result->version = source->version;
+      result->rank = source->rank;
+      result->attribute = source->attribute;
+      result->type = source->type;
+      result->offset = source->offset;
+      for (int i = 0; i < source->rank; i++){
+        result->dim[i].lower_bound = source->dim[i].lower_bound;
+        result->dim[i].extent = source->dim[i].extent;
+        result->dim[i].sm = source->dim[i].sm;
+      }
     }
   }
 
@@ -310,7 +367,7 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[]){
   }
 }
 
-int CFI_is_contiguous(cons CFI_cdesc_t *dv){
+int CFI_is_contiguous(const CFI_cdesc_t *dv){
   if (dv->base_addr == NULL){
     fprintf(stderr, "ISO_Fortran_binding.c: CFI_is_contiguous: NULL base address of C Descriptor. (Error No. %d).\n", CFI_ERROR_BASE_ADDR_NULL);
     exit(EXIT_FAILURE);
