@@ -433,6 +433,24 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[], const CFI_i
   return CFI_SUCCESS;
 }
 
+int CFI_deallocate(CFI_cdesc_t *dv){
+
+  // C Descriptor should be allocated.
+  if (dv == NULL){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_deallocate: NULL C Descriptor. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
+    return CFI_INVALID_DESCRIPTOR;
+  }
+
+  // C Descriptor must be for an allocatable or pointer variable.
+  if (dv->attribute == CFI_attribute_other){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_deallocate: C Descriptor must describe a pointer or allocatabale object. (Error No. %d).\n", CFI_INVALID_ATTRIBUTE);
+    return CFI_INVALID_ATTRIBUTE;
+  }
+
+  free(dv->base_addr);
+  return CFI_SUCCESS;
+}
+
 void main(){
   CFI_CDESC_T(2) *dv;
   CFI_index_t subscripts[2];
