@@ -393,27 +393,44 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[], const CFI_i
   // C Descriptor should be allocated.
   if (dv == NULL){
     fprintf(stderr, "ISO_Fortran_binding.c: CFI_allocate: NULL C Descriptor. (Error No. %d).\n", CFI_INVALID_DESCRIPTOR);
-    exit(EXIT_FAILURE);
+    return CFI_INVALID_DESCRIPTOR;
   }
 
   // Base address of C Descriptor should be NULL.
   if (dv->base_addr != NULL){
     fprintf(stderr, "ISO_Fortran_binding.c: CFI_allocate: Base address of C Descriptor should be NULL. (Error No. %d).\n", CFI_ERROR_BASE_ADDR_NOT_NULL);
-    exit(EXIT_FAILURE);
+    return CFI_ERROR_BASE_ADDR_NOT_NULL;
   }
 
   // The C Descriptor must be for an allocatable or pointer object.
   if(dv->attribute != CFI_attribute_pointer || dv->attribute != CFI_attribute_allocatable){
     fprintf(stderr, "ISO_Fortran_binding.c: CFI_allocate: The object of the C Descriptor must be a pointer or allocatable variable. (Error No. %d).\n", CFI_INVALID_ATTRIBUTE);
-    exit(EXIT_FAILURE);
+    return CFI_INVALID_ATTRIBUTE;
   }
 
-  // dont know exactly what to do with this information but standard has conditional behaviour if this is the case.
-  if (dv->type != CFI_type_char || dv->type != CFI_type_ucs4_char || dv->type != CFI_type_signed_char){
-
+  // If the type is a character, the descriptor's elemenent length is replaced by the elem_len argument.
+  if (dv->type == CFI_type_char || dv->type == CFI_type_ucs4_char || dv->type != CFI_type_signed_char){
+    dv->elem_len = elem_len;
   }
 
-  // have a case-switch table that allocates the memory according to the size of the data type and the number of elements in the array
+  size_t arr_len = 1;
+
+  // If rank is greater than 0, lower_bounds and upper_bounds are used. They're ignored otherwhise.
+  if (dv->rank > 0){
+    if (lower_bounds == NULL || upper_bounds == NULL){
+      fprintf(stderr, "ISO_Fortran_binding.c: CFI_allocate: If rank > 0, rank = %d, the upper and lower bounds arguments, upper_bounds[] and lower_bounds[], must not be NULL. (Error No. %d).\n", dv->rank, CFI_INVALID_EXTENT);
+      return CFI_INVALID_EXTENT;
+    }
+    for (int i = 0; dv->rank; i++){
+      dv->dim[i].lower_bound = lower_bounds[i];
+      dv->dim[i].extent = (upper_bounds[i] - lower_bounds[i] + 1);
+      arr_len *= dv->dim[i].extent;
+    }
+  }
+
+  dv->base_addr = malloc(arr_len*dv->elem_len);
+
+  return CFI_SUCCESS;
 }
 
 void main(){
