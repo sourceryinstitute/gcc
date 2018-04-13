@@ -451,33 +451,86 @@ int CFI_deallocate(CFI_cdesc_t *dv){
   return CFI_SUCCESS;
 }
 
-int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source, const CFI_index_t lower_bounds[], const CFI_index_t lower_bounds[], const CFI_index_t strides[]){
+int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source, const CFI_index_t lower_bounds[], const CFI_index_t upper_bounds[], const CFI_index_t strides[]){
 
+  // Result must not be an allocatable array.
   if (result->attribute == CFI_attribute_allocatable){
     fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: Result must describe a pointer, CFI_attribute_pointer, or other, CFI_attribute_other. (Error No. %d).\n", CFI_INVALID_ATTRIBUTE);
     return CFI_INVALID_ATTRIBUTE;
   }
 
+  // Base address of source must not be NULL.
+  if (source->base_addr == NULL){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: Base address of source must be allocated. (Error No. %d).\n", CFI_ERROR_BASE_ADDR_NULL);
+    return CFI_ERROR_BASE_ADDR_NULL;
+  }
+
+  // Source must be some form of array (nonallocatable nonpointer array, allocated allocatable array or an associated pointer array).
   if (source->rank <= 0){
-    // fail
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: Source must have rank greater than zero. (Error No. %d).\n", CFI_INVALID_RANK);
+    return CFI_INVALID_RANK;
   }
 
-  if (source->base_addr == NULL && (source->attribute != CFI_attribute_pointer || source->attribute != CFI_attribute_allocatable)){
-    // fail
+  if (result->elem_len != source->elem_len){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: The element lengths of source, source->elem_len = %d, and result, result->elem_len = %d, must be the same. (Error No. %d).\n", source->elem_len, result->elem_len, CFI_INVALID_ELEM_LEN);
+    return CFI_INVALID_ELEM_LEN;
   }
 
-  if (result->elem_len != source->elem_len && result->type != source->type){
-    // fail
+  if (result->type != source->type){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: The type of source, source->type = %d, and result, result->type = %d, must be the same. (Error No. %d).\n", source->type, result->type, CFI_INVALID_TYPE);
+    return CFI_INVALID_TYPE;
   }
 
   int zero_count = 0;
-  for (int i == 0; i < source->rank; i++){
+  for (int i = 0; i < source->rank; i++){
     zero_count++;
   }
 
   if (result->rank != source->rank - zero_count){
     fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: Rank of result, source->rank = %d, must be equal to the rank of source minus the number of zeros in strides = %d - %d = %d. (Error No. %d).\n", result->rank, source->rank, zero_count, source->rank-zero_count, CFI_INVALID_DESCRIPTOR);
     return CFI_INVALID_DESCRIPTOR;
+  }
+
+  // branching in nasty ways here, this is wrong as i haven't yet understood the standard.
+
+  CFI_index_t *aux_stride;
+  CFI_index_t *aux_lower_bounds;
+  CFI_index_t *aux_upper_bounds;
+  aux_stride = malloc(source->rank * sizeof(CFI_index_t));
+  aux_lower_bounds = malloc(source->rank * sizeof(CFI_index_t));
+  aux_upper_bounds = malloc(source->rank * sizeof(CFI_index_t));
+
+  // upper and lower bounds are not null
+  if (lower_bounds != NULL && upper_bounds != NULL){
+    // Loop through to find if there is an invalid bound.
+    for (int i = 0; i < source->rank; i++){
+      aux_stride[i] = (upper_bounds[i] - lower_bounds[i] + stride[i])/stride[i];
+      aux_lower_bounds[i] = source->dim[i].lower_bound;
+      aux_upper_bounds[i] = aux_lower_bounds[i] + source->dim[i].extent - 1;
+      if (stride[i] == 0 || aux_stride[i] > 0){
+        // Check lower bounds.
+        if (lower_bounds[i] < aux_lower_bounds[i] || lower_bounds[i] > aux_upper_bounds[i]){
+          fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: Lower bounds, lower_bounds[%d] = %d, must be within the bounds of the same dimension of source, [source->dim[%d].lower_bound, source->dim[%d] + source->dim[%d].extent - 1] = [%d, %d]. (Error No. %d).\n", i, lower_bounds[i], i, i, i, aux_lower_bounds[i], aux_upper_bounds[i], CFI_ERROR_OUT_OF_BOUNDS);
+          return CFI_ERROR_OUT_OF_BOUNDS;
+        }
+        // Check upper bounds.
+        if (upper_bounds[i] < aux_upper_bounds[i] || upper_bounds[i] > aux_upper_bound[i]){
+          fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: Upper bounds, upper_bounds[%d] = %d, must be within the bounds of the same dimension of source, [source->dim[%d].lower_bound, source->dim[%d] + source->dim[%d].extent - 1] = [%d, %d]. (Error No. %d).\n", i, upper_bounds[i], i, i, i, aux_lower_bounds[i], aux_upper_bounds[i], CFI_ERROR_OUT_OF_BOUNDS);
+          return CFI_ERROR_OUT_OF_BOUNDS;
+        }
+      }
+    }
+  }
+  else if (lower_bounds != NULL){
+    
+  }
+
+  if (upper_bounds != NULL){
+    for (int i = 0; i < source->rank; i++){
+      if (stride[i] == 0 || aux_stride[i] > 0){
+
+      }
+    }
   }
 
   // upper bounds
