@@ -451,6 +451,40 @@ int CFI_deallocate(CFI_cdesc_t *dv){
   return CFI_SUCCESS;
 }
 
+int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source, const CFI_index_t lower_bounds[], const CFI_index_t lower_bounds[], const CFI_index_t strides[]){
+
+  if (result->attribute == CFI_attribute_allocatable){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: Result must describe a pointer, CFI_attribute_pointer, or other, CFI_attribute_other. (Error No. %d).\n", CFI_INVALID_ATTRIBUTE);
+    return CFI_INVALID_ATTRIBUTE;
+  }
+
+  if (source->rank <= 0){
+    // fail
+  }
+
+  if (source->base_addr == NULL && (source->attribute != CFI_attribute_pointer || source->attribute != CFI_attribute_allocatable)){
+    // fail
+  }
+
+  if (result->elem_len != source->elem_len && result->type != source->type){
+    // fail
+  }
+
+  int zero_count = 0;
+  for (int i == 0; i < source->rank; i++){
+    zero_count++;
+  }
+
+  if (result->rank != source->rank - zero_count){
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: Rank of result, source->rank = %d, must be equal to the rank of source minus the number of zeros in strides = %d - %d = %d. (Error No. %d).\n", result->rank, source->rank, zero_count, source->rank-zero_count, CFI_INVALID_DESCRIPTOR);
+    return CFI_INVALID_DESCRIPTOR;
+  }
+
+  // upper bounds
+  // lower bounds
+  // strides
+}
+
 void main(){
   CFI_CDESC_T(2) *dv;
   CFI_index_t subscripts[2];
