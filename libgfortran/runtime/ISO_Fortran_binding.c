@@ -487,55 +487,96 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source, const CFI_index
   }
 
   if (result->rank != source->rank - zero_count){
-    fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: Rank of result, source->rank = %d, must be equal to the rank of source minus the number of zeros in strides = %d - %d = %d. (Error No. %d).\n", result->rank, source->rank, zero_count, source->rank-zero_count, CFI_INVALID_DESCRIPTOR);
-    return CFI_INVALID_DESCRIPTOR;
+    fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: Rank of result, source->rank = %d, must be equal to the rank of source minus the number of zeros in strides = %d - %d = %d. (Error No. %d).\n", result->rank, source->rank, zero_count, source->rank-zero_count, CFI_INVALID_RANK);
+    return CFI_INVALID_RANK;
   }
 
-  // branching in nasty ways here, this is wrong as i haven't yet understood the standard.
+  CFI_index_t *lower;
+  CFI_index_t *upper;
+  CFI_index_t *stride;
+  lower = malloc(source->rank * sizeof(CFI_index_t));
+  upper = malloc(source->rank * sizeof(CFI_index_t));
+  stride = malloc(source->rank * sizeof(CFI_index_t));
 
-  CFI_index_t *aux_stride;
-  CFI_index_t *aux_lower_bounds;
-  CFI_index_t *aux_upper_bounds;
-  aux_stride = malloc(source->rank * sizeof(CFI_index_t));
-  aux_lower_bounds = malloc(source->rank * sizeof(CFI_index_t));
-  aux_upper_bounds = malloc(source->rank * sizeof(CFI_index_t));
-
-  // upper and lower bounds are not null
-  if (lower_bounds != NULL && upper_bounds != NULL){
-    // Loop through to find if there is an invalid bound.
+  // Lower bounds.
+  if (lower_bounds == NULL){
     for (int i = 0; i < source->rank; i++){
-      aux_stride[i] = (upper_bounds[i] - lower_bounds[i] + stride[i])/stride[i];
-      aux_lower_bounds[i] = source->dim[i].lower_bound;
-      aux_upper_bounds[i] = aux_lower_bounds[i] + source->dim[i].extent - 1;
-      if (stride[i] == 0 || aux_stride[i] > 0){
-        // Check lower bounds.
-        if (lower_bounds[i] < aux_lower_bounds[i] || lower_bounds[i] > aux_upper_bounds[i]){
-          fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: Lower bounds, lower_bounds[%d] = %d, must be within the bounds of the same dimension of source, [source->dim[%d].lower_bound, source->dim[%d] + source->dim[%d].extent - 1] = [%d, %d]. (Error No. %d).\n", i, lower_bounds[i], i, i, i, aux_lower_bounds[i], aux_upper_bounds[i], CFI_ERROR_OUT_OF_BOUNDS);
-          return CFI_ERROR_OUT_OF_BOUNDS;
-        }
-        // Check upper bounds.
-        if (upper_bounds[i] < aux_upper_bounds[i] || upper_bounds[i] > aux_upper_bound[i]){
-          fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: Upper bounds, upper_bounds[%d] = %d, must be within the bounds of the same dimension of source, [source->dim[%d].lower_bound, source->dim[%d] + source->dim[%d].extent - 1] = [%d, %d]. (Error No. %d).\n", i, upper_bounds[i], i, i, i, aux_lower_bounds[i], aux_upper_bounds[i], CFI_ERROR_OUT_OF_BOUNDS);
+      lower[i] = source->dim[i].lower_bound;
+    }
+  }
+  else{
+    for (int i = 0; i < source->rank; i++){
+      lower[i] = lower_bounds[i];
+    }
+  }
+
+  // Upper bounds.
+  if (upper_bounds == NULL){
+    if (source->dim[source->rank].extent == -1){
+      fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: Source must not be an assumed size array if upper_bounds is NULL. (Error No. %d).\n", CFI_INVALID_EXTENT);
+    }
+    for (int i = 0; i < source->rank; i++){
+      upper[i] = source->dim[i].lower_bound + source->dim[i].extent - 1;
+    }
+  }
+  else{
+    for (int i = 0; i < source->rank; i++){
+      upper[i] = upper_bounds[i];
+    }
+  }
+
+  // Stride
+  if (stride == NULL){
+    for (int i = 0; i < source->rank; i++){
+      stride[i] = 1;
+    }
+  }
+  else{
+    for (int i = 0; i < source->rank; i++){
+      stride[i] = strides[i];
+      // If stride[i] = then lower[i] and upper[i] must be equal.
+      if (stride[i] == 0 && lower[i] != upper[i]){
+        fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: If strides[%d] = 0, then the lower bounds, lower_bounds[%d] = %d, and upper_bounds[%d] = %d, must be equal. (Error No. %d).\n", i, i, lower_bounds[i], i, upper_bounds[i], CFI_ERROR_OUT_OF_BOUNDS);
+        return CFI_ERROR_OUT_OF_BOUNDS;
+      }
+    }
+  }
+
+  // Lower bounds.
+  if (lower_bounds != NULL){
+    for (int i = 0; i < source->rank; i++){
+      if (stride[i] == 0 || (upper[i] - lower[i] + stride[i])/stride[i]){
+        if (lower[i] < source->dim[i].lower_bound || lower > source->dim[i].lower_bounds + source->dim[i].extent - 1){
+          fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: If stride[%d] = 0, or (upper[%d] - lower[%d] + stride[%d])/stride[%d] = (%d - %d + %d)/%d = %d. (Error No. %d).\nIf upper_bounds is not NULL, then upper[i] = upper_bounds[i] for all i, otherwhise upper[i] is the upper bound of the Fortran array. If lower_bounds is not NULL, then lower[i] = lower_bounds[i] for all i, otherwhise lower[i] is the lower bound of the Fortran array.\n", i, i, i, i, i, upper[i], lower[i], stride[i], stride[i], (upper[i] - lower[i] + stride[i])/stride[i], CFI_ERROR_OUT_OF_BOUNDS);
           return CFI_ERROR_OUT_OF_BOUNDS;
         }
       }
     }
   }
-  else if (lower_bounds != NULL){
-    
-  }
 
+  // upper bounds.
   if (upper_bounds != NULL){
     for (int i = 0; i < source->rank; i++){
-      if (stride[i] == 0 || aux_stride[i] > 0){
-
+      if (stride[i] == 0 || (upper[i] - lower[i] + stride[i])/stride[i]){
+        if (lower[i] < source->dim[i].lower_bound || lower > source->dim[i].lower_bounds + source->dim[i].extent - 1){
+          fprintf(stderr, "ISO_Fortran_binding.c: CFI_section: If stride[%d] = 0, or (upper[%d] - lower[%d] + stride[%d])/stride[%d] = (%d - %d + %d)/%d = %d. (Error No. %d).\nIf upper_bounds is not NULL, then upper[i] = upper_bounds[i] for all i, otherwhise upper[i] is the upper bound of the Fortran array. If lower_bounds is not NULL, then lower[i] = lower_bounds[i] for all i, otherwhise lower[i] is the lower bound of the Fortran array.\n", i, i, i, i, i, upper[i], lower[i], stride[i], stride[i], (upper[i] - lower[i] + stride[i])/stride[i], CFI_ERROR_OUT_OF_BOUNDS);
+          return CFI_ERROR_OUT_OF_BOUNDS;
+        }
       }
     }
   }
 
-  // upper bounds
-  // lower bounds
-  // strides
+  // Update the result to describe the array section.
+  for(int i = 0; i < result->rank; i++){
+    result->dim[i].lower_bound = lower[i];
+    result->dim[i].extent = upper[i] - lower[i] + 1;
+    result->dim[i].sm = stride[i]*result->elem_len;
+  }
+  free(lower);
+  free(upper);
+  free(stride);
+
+  return CFI_SUCCESS;
 }
 
 void main(){
