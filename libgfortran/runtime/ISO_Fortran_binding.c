@@ -1131,7 +1131,9 @@ void main ()
   // printf("%ld\n", *address);
   // printf("%d, %d, %d\n", sizeof(subscripts), sizeof(CFI_index_t),
   // sizeof(test));
-
+  printf("type size in bytes = %d\n", (CFI_type_int128_t - (CFI_type_int128_t & CFI_type_mask)) >> CFI_type_kind_shift);
+  printf("base type = %d\n", CFI_type_int128_t & CFI_type_mask);
+  
   free (dv->base_addr);
   free (dv);
 }
