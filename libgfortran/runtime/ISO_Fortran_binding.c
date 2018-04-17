@@ -712,8 +712,18 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
         }
       for (int i = 0; dv->rank; i++)
         {
+          if (dv->dim[i].extent != upper_bounds[i] - lower_bounds[i] + 1)
+            {
+              fprintf (
+                  stderr,
+                  "ISO_Fortran_binding.c: CFI_allocate: The lower and upper bounds must be consistent with the extent of the dimension described, dv->dim[%d].extent = %d, must be equal to upper_bounds[%d] - lower_bounds[%d] + 1 = %d - %d + 1 = %d. "
+                  "(Error No. %d).\n",
+                  i, dv->dim[i].extent, i, i, upper_bounds[i], lower_bounds[i],
+                  upper_bounds[i] - lower_bounds[i] + 1, CFI_INVALID_EXTENT);
+              return CFI_INVALID_EXTENT;
+            }
           dv->dim[i].lower_bound = lower_bounds[i];
-          dv->dim[i].extent      = (upper_bounds[i] - lower_bounds[i] + 1);
+          dv->dim[i].sm          = dv->elem_len;
           arr_len *= dv->dim[i].extent;
         }
     }
@@ -859,6 +869,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
                    "an assumed size array if upper_bounds is NULL. (Error "
                    "No. %d).\n",
                    CFI_INVALID_EXTENT);
+          return CFI_INVALID_EXTENT;
         }
       for (int i = 0; i < source->rank; i++)
         {
@@ -874,7 +885,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
     }
 
   // Stride
-  if (stride == NULL)
+  if (strides == NULL)
     {
       for (int i = 0; i < source->rank; i++)
         {
@@ -1033,6 +1044,11 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
               elem_len, type_size, CFI_INVALID_ELEM_LEN);
           return CFI_INVALID_ELEM_LEN;
         }
+      result->elem_len = elem_len;
+      for (int i = 0; i < result->rank; i++)
+        {
+          result->dim[i].sm = result->elem_len;
+        }
     }
   else
     {
@@ -1047,10 +1063,34 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
               elem_len, type_size, CFI_INVALID_ELEM_LEN);
           return CFI_INVALID_ELEM_LEN;
         }
+      result->elem_len = elem_len;
+      for (int i = 0; i < result->rank; i++)
+        {
+          result->dim[i].sm = result->elem_len;
+        }
     }
 
   /* Check displacement */
-  if (displacement < 0 || displacement > source->elem_len){}
+  if (displacement < 0 || displacement > source->elem_len - 1)
+    {
+      fprintf (
+          stderr,
+          "ISO_Fortran_binding.c: CFI_select_part: Displacement must be within the bounds of source, 0 <= displacement (=%d) <= source->elem_len - 1 (=%d). (Error No. %d).\n",
+          displacement, source->elem_len - 1, CFI_ERROR_OUT_OF_BOUNDS);
+      return CFI_ERROR_OUT_OF_BOUNDS;
+    }
+
+  if (displacement + result->elem_len > source->elem_len)
+    {
+      fprintf (
+          stderr,
+          "ISO_Fortran_binding.c: CFI_select_part: Displacement plus the element length of the result must be less than or equal to the element length of the source, displacement + result->elem_len (=%d+%d=%d) <= source->elem_len (=%d). This ensures consistency in picking part of the source (Error No. %d).\n",
+          displacement, source->elem_len, displacement + source->elem_len,
+          source->elem_len, CFI_ERROR_OUT_OF_BOUNDS);
+      return CFI_ERROR_OUT_OF_BOUNDS;
+    }
+
+  result->base_addr = (char *) source->base_addr + displacement;
 }
 
 void main ()
