@@ -1091,8 +1091,10 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
     }
 
   result->base_addr = (char *) source->base_addr + displacement;
-}
 
+  return CFI_SUCCESS;
+}
+/*
 void main ()
 {
   CFI_CDESC_T (2) * dv;
@@ -1131,9 +1133,11 @@ void main ()
   // printf("%ld\n", *address);
   // printf("%d, %d, %d\n", sizeof(subscripts), sizeof(CFI_index_t),
   // sizeof(test));
-  printf("type size in bytes = %d\n", (CFI_type_int128_t - (CFI_type_int128_t & CFI_type_mask)) >> CFI_type_kind_shift);
+  printf("type size in bytes = %d\n", (CFI_type_int128_t - (CFI_type_int128_t &
+CFI_type_mask)) >> CFI_type_kind_shift);
   printf("base type = %d\n", CFI_type_int128_t & CFI_type_mask);
-  
+
   free (dv->base_addr);
   free (dv);
 }
+*/

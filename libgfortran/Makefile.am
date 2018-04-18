@@ -196,7 +196,8 @@ runtime/bounds.c \
 runtime/compile_options.c \
 runtime/memory.c \
 runtime/string.c \
-runtime/select.c
+runtime/select.c \
+runtime/ISO_Fortran_binding.c
 
 if LIBGFOR_MINIMAL
 
@@ -676,7 +677,7 @@ $(srcdir)/generated/spread_r16.c \
 $(srcdir)/generated/spread_c4.c \
 $(srcdir)/generated/spread_c8.c \
 $(srcdir)/generated/spread_c10.c \
-$(srcdir)/generated/spread_c16.c 
+$(srcdir)/generated/spread_c16.c
 
 m4_files= m4/iparm.m4 m4/ifunction.m4 m4/iforeach.m4 m4/all.m4 \
     m4/any.m4 m4/count.m4 m4/maxloc0.m4 m4/maxloc1.m4 m4/maxval.m4 \
@@ -908,7 +909,7 @@ libgfortran_c.lo: $(filter %.c,$(prereq_SRC))
 #libgfortran_F.o: $(filter %.F %.F90,$(prereq_SRC))
 #	$(PPFCCOMPILE) -c $^ -o $@ -combine
 #
-#libgfortran_F.lo: 
+#libgfortran_F.lo:
 #	$(LTPPFCCOMPILE) -c -o $@ $^ -combine
 
 libgfortran_la_SOURCES = libgfortran_c.c $(filter-out %.c,$(prereq_SRC))
