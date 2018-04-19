@@ -28,9 +28,9 @@ header file.
 * features, that is what ISO_Fortran_binding_prototyping_tests.c is for. I'm
 * currently annotating the structures according to the standard just to have
 * them in-file so I know what to do with them. */
-
-//#include "libgfortran.h"
-#include "ISO_Fortran_binding.h"
+#pragma GCC diagnostic ignored "-Wvla"
+#include "libgfortran.h"
+//#include "ISO_Fortran_binding.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -143,7 +143,7 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
       return CFI_INVALID_DESCRIPTOR;
     }
 
-  int type_size = 0;
+  size_t type_size = 0;
   /* base_addr should be NULL or an appropriately aligned address for an object
    * of the specified type. If it is not NULL the types and elem_len must be
    * consitent with the type and type parameters of the Fortran data. In order
@@ -1032,7 +1032,7 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
     }
 
   /* Check the element length */
-  int type_size = (result->type - CFI_type_Character) >> CFI_type_kind_shift;
+  size_t type_size = (result->type - CFI_type_Character) >> CFI_type_kind_shift;
   if (type_size == 1 || type_size == 4)
     {
       if (elem_len != type_size)
