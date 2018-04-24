@@ -196,8 +196,7 @@ runtime/bounds.c \
 runtime/compile_options.c \
 runtime/memory.c \
 runtime/string.c \
-runtime/select.c \
-runtime/ISO_Fortran_binding.c
+runtime/select.c
 
 if LIBGFOR_MINIMAL
 
