@@ -28,66 +28,64 @@ header file.
 * features, that is what ISO_Fortran_binding_prototyping_tests.c is for. I'm
 * currently annotating the structures according to the standard just to have
 * them in-file so I know what to do with them. */
-
 #pragma GCC diagnostic ignored "-Wvla"
-#include "ISO_Fortran_binding.h"
+#include "libgfortran.h"
+//#include "ISO_Fortran_binding.h"
 #include <stdio.h>
 #include <stdlib.h>
 
-/*
-typedef struct CFI_dim_t
-{
-  // Value of the lower bound of the dimension being described.
-  CFI_index_t lower_bound;
-  // Number of elments in the dimension being described.
-  // If object is an assumed size array the value at the last dimension is
-  -1.
-  CFI_index_t extent;
-  // The difference in bytes between the addresses of successive elements in
-  the dimension.
-  CFI_index_t sm;
-}
-CFI_dim_t;
-
-typedef struct CFI_cdesc_t
-{
-  // NULL if unallocated allocatable or pointer.
-  // Processor dependent if object has 0 size.
-  // C address of the first element in Fortran array order.
-  void *base_addr;
-  // Storage size in bytes of object if scalar.
-  // Storage size in bytes of a single elment in object if not scalar.
-  size_t elem_len;
-  // CFI_VERSION in ISO_Fortran.h file.
-  int version;
-  // Number of dimensions of Fortran object (scalar is 0).
-  CFI_rank_t rank;
-  // Value of the specifier for the memory characteristics of the object,
-  whether it is an allocatable, a pointer, or a nonallocatable nonpointer
-  object.
-  CFI_attribute_t attribute;
-  // Value of the specifier for the type of the object. Each C interoperable
-  has its own specifier.
-  CFI_type_t type;
-  // Not described in ISO/IEC 1539-1:2017
-  size_t offset;
-  // Number of elements in dim is the rank of the object.
-  // If the object is an array pointer or allocatable array, the value of
-  dim[].lower_bound is determined by argument association, allocation or
-  pointer association.
-  // If the object is a nonallocatable nonpointer, the value of
-  dim[].lower_bound = 0.
-  // The N dimensions are ordered such that:
-  // n = 0, 1, 2, ..., N - 1
-  // abs( dim[n=0].sm ) >= elem_len &&
-  // abs( dim[n+1].sm ) >= abs( dim[n].sm ) * dim[n].extent && ... &&
-  // abs( dim[N-1].sm ) >= abs( dim[N-2].sm ) * dim[N-2].extent
-  // In an assumed size array the extent of the last element is equal to -1,
-  dim[N-1].extent = -1
-  CFI_dim_t dim[];
-}
-CFI_cdesc_t;
-*/
+// typedef struct CFI_dim_t
+// {
+//   // Value of the lower bound of the dimension being described.
+//   CFI_index_t lower_bound;
+//   // Number of elments in the dimension being described.
+//   // If object is an assumed size array the value at the last dimension is
+//   -1.
+//   CFI_index_t extent;
+//   // The difference in bytes between the addresses of successive elements in
+//   the dimension.
+//   CFI_index_t sm;
+// }
+// CFI_dim_t;
+//
+// typedef struct CFI_cdesc_t
+// {
+//   // NULL if unallocated allocatable or pointer.
+//   // Processor dependent if object has 0 size.
+//   // C address of the first element in Fortran array order.
+//   void *base_addr;
+//   // Storage size in bytes of object if scalar.
+//   // Storage size in bytes of a single elment in object if not scalar.
+//   size_t elem_len;
+//   // CFI_VERSION in ISO_Fortran.h file.
+//   int version;
+//   // Number of dimensions of Fortran object (scalar is 0).
+//   CFI_rank_t rank;
+//   // Value of the specifier for the memory characteristics of the object,
+//   whether it is an allocatable, a pointer, or a nonallocatable nonpointer
+//   object.
+//   CFI_attribute_t attribute;
+//   // Value of the specifier for the type of the object. Each C interoperable
+//   has its own specifier.
+//   CFI_type_t type;
+//   // Not described in ISO/IEC 1539-1:2017
+//   size_t offset;
+//   // Number of elements in dim is the rank of the object.
+//   // If the object is an array pointer or allocatable array, the value of
+//   dim[].lower_bound is determined by argument association, allocation or
+//   pointer association.
+//   // If the object is a nonallocatable nonpointer, the value of
+//   dim[].lower_bound = 0.
+//   // The N dimensions are ordered such that:
+//   // n = 0, 1, 2, ..., N - 1
+//   // abs( dim[n=0].sm ) >= elem_len &&
+//   // abs( dim[n+1].sm ) >= abs( dim[n].sm ) * dim[n].extent && ... &&
+//   // abs( dim[N-1].sm ) >= abs( dim[N-2].sm ) * dim[N-2].extent
+//   // In an assumed size array the extent of the last element is equal to -1,
+//   dim[N-1].extent = -1
+//   CFI_dim_t dim[];
+// }
+// CFI_cdesc_t;
 /* Definitions */
 #define type(x)                                                                \
   _Generic((x), \
@@ -112,7 +110,7 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                    const CFI_index_t extents[])
 {
 
-  /* C Descriptor should be allocated. */
+  // C Descriptor should be allocated.
   if (dv == NULL)
     {
       fprintf (stderr,
@@ -122,7 +120,7 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
       return CFI_INVALID_DESCRIPTOR;
     }
 
-  /* C Descriptor must be big enough to hold an object of a specified rank. */
+  // C Descriptor must be big enough to hold an object of a specified rank.
   if (sizeof (dv) < sizeof (CFI_CDESC_T (rank)))
     {
       fprintf (stderr,
@@ -133,7 +131,7 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
       return CFI_INVALID_DESCRIPTOR;
     }
 
-  /* C Descriptor must not be an allocated allocatable. */
+  // C Descriptor must not be an allocated allocatable.
   if (dv->base_addr != NULL && dv->attribute == CFI_attribute_allocatable)
     {
       fprintf (stderr,
@@ -145,7 +143,7 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
       return CFI_INVALID_DESCRIPTOR;
     }
 
-  int type_size = 0;
+  size_t type_size = 0;
   /* base_addr should be NULL or an appropriately aligned address for an object
    * of the specified type. If it is not NULL the types and elem_len must be
    * consitent with the type and type parameters of the Fortran data. In order
@@ -154,9 +152,9 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
    * type element. */
   if (base_addr != NULL)
     {
-      /* Check for integer data types. */
+      // Check for integer data types.
       type_size = (type - CFI_type_Integer) >> CFI_type_kind_shift;
-      /* This is only true for integer data types. */
+      // This is only true for integer data types.
       if (type_size == 1 || type_size == 2 || type_size == 4 ||
           type_size == 8 || type_size == 16)
         {
@@ -172,20 +170,20 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
               return CFI_INVALID_ELEM_LEN;
             }
         }
-      /* We use else because we need to redefine type_size using another
-      CFI_type. */
+      // We use else because we need to redefine type_size using another
+      // CFI_type.
       else
         {
-          /* Check for real data types. */
+          // Check for real data types.
           type_size = (type - CFI_type_Real) >> CFI_type_kind_shift;
-          /* This is only true for real data types. */
+          // This is only true for real data types.
           if (type_size == 4 || type_size == 8 || type_size == 10 ||
               type_size == 16)
             {
-              /* REAL(10) has byte length of 64 bytes. All the
-              others have the
-              same
-              number of bytes as the data type number. */
+              // REAL(10) has byte length of 64 bytes. All the
+              // others have the
+              // same
+              // number of bytes as the data type number.
               if (type_size == 10)
                 {
                   type_size = 64;
@@ -202,7 +200,7 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                       return CFI_INVALID_ELEM_LEN;
                     }
                 }
-              /* Other REAL data types. */
+              // Other REAL data types.
               else
                 {
                   if (sizeof (base_addr) != type_size)
@@ -219,22 +217,22 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                     }
                 }
             }
-          /* We use else because we need to redefine type_size using
-          another
-          CFI_type. */
+          // We use else because we need to redefine type_size using
+          // another
+          // CFI_type.
           else
             {
-              /* Check for complex data types. */
+              // Check for complex data types.
               type_size = (type - CFI_type_Complex) >> CFI_type_kind_shift;
-              /* This is only true for complex data types. */
+              // This is only true for complex data types.
               if (type_size == 4 || type_size == 8 || type_size == 10 ||
                   type_size == 16)
                 {
-                  /* COMPLEX(10) has byte length of 2*64
-                   bytes. All the others
-                   have
-                   twice the number of bytes as the data
-                   type number. */
+                  // COMPLEX(10) has byte length of 2*64
+                  // bytes. All the others
+                  // have
+                  // twice the number of bytes as the data
+                  // type number.
                   if (type_size == 10)
                     {
                       type_size = 128;
@@ -257,7 +255,7 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                   else
                     {
                       type_size = 2 * type_size;
-                      /* Other COMPLEX data types. */
+                      // Other COMPLEX data types.
                       if (sizeof (base_addr) != type_size)
                         {
                           fprintf (stderr, "ISO_Fortran_binding.c:"
@@ -275,12 +273,12 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                         }
                     }
                 }
-              /* We use else because we need to redefine type_size
-              using another
-              CFI_type. */
+              // We use else because we need to redefine type_size
+              // using another
+              // CFI_type.
               else
                 {
-                  /* Check for logical data type. */
+                  // Check for logical data type.
                   type_size = (type - CFI_type_Logical) >> CFI_type_kind_shift;
                   if (type_size == 1 && sizeof (base_addr) != type_size)
                     {
@@ -291,10 +289,10 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                                type_size, type, CFI_INVALID_ELEM_LEN);
                       return CFI_INVALID_ELEM_LEN;
                     }
-                  /* We use else because we need to redefine
-                  type_size using
-                  another
-                  CFI_type. */
+                  // We use else because we need to redefine
+                  // type_size using
+                  // another
+                  // CFI_type.
                   else
                     {
                       type_size =
@@ -320,14 +318,14 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                               return CFI_INVALID_ELEM_LEN;
                             }
                         }
-                      /* We've checked all normal types
-                      // and none match. */
+                      // We've checked all normal types
+                      // and none match.
                       else
                         {
-                          /* Clever trick so we don't
+                          // Clever trick so we don't
                           // have to evaluate a
                           // complicated if
-                          // later on. */
+                          // later on.
                           type_size = -1;
                           if (type == CFI_type_other || type == CFI_type_struct)
                             {
@@ -371,8 +369,8 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                                   return CFI_INVALID_ELEM_LEN;
                                 }
                             }
-                          /* We've checked all types
-                          // and none match. */
+                          // We've checked all types
+                          // and none match.
                           else
                             {
                               fprintf (stderr, "ISO_Fortran_"
@@ -392,11 +390,11 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
             }
         }
     }
-  /* base_addr is NULL. */
+  // base_addr is NULL
   else
     {
-      /* If C Descripor will be established as an unallocated allocatable,
-      // attribute must be CFI_attribute_allocatable. */
+      // If C Descripor will be established as an unallocated allocatable,
+      // attribute must be CFI_attribute_allocatable.
       if (attribute != CFI_attribute_allocatable ||
           attribute != CFI_attribute_other)
         {
@@ -447,16 +445,16 @@ int CFI_setpointer (CFI_cdesc_t *result, CFI_cdesc_t *source,
                     const CFI_index_t lower_bounds[])
 {
 
-  /* If source is NULL, the result is a C Descriptor that describes a
-  // disassociated pointer. */
+  // If source is NULL, the result is a C Descriptor that describes a
+  // disassociated pointer.
   if (source == NULL)
     {
       result->base_addr = NULL;
       result->version   = CFI_VERSION;
       result->attribute = CFI_attribute_pointer;
     }
-  /* If source is a disassociated pointer, the result is a C Descriptor that
-  // describes a disassociated pointer but with the characteristics of source. */
+  // If source is a disassociated pointer, the result is a C Descriptor that
+  // describes a disassociated pointer but with the characteristics of source.
   else if (source->base_addr == NULL &&
            source->attribute == CFI_attribute_pointer)
     {
@@ -516,7 +514,7 @@ int CFI_setpointer (CFI_cdesc_t *result, CFI_cdesc_t *source,
 void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
 {
 
-  /* C Descriptor should be allocated. */
+  // C Descriptor should be allocated.
   if (dv == NULL)
     {
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_address: NULL C Descriptor. "
@@ -525,7 +523,7 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
       exit (EXIT_FAILURE);
     }
 
-  /* Base address of C Descriptor should be allocated. */
+  // Base address of C Descriptor should be allocated.
   if (dv->base_addr == NULL)
     {
       fprintf (stderr,
@@ -537,21 +535,21 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
 
   CFI_rank_t rank = dv->rank;
 
-  /* dv is a scalar. */
+  // dv is a scalar.
   if (rank == 0)
     {
-      /* Base address is the C Descriptor base address. */
+      // Base address is the C Descriptor base address.
       return dv->base_addr;
     }
-  /* dv is not a scalar. */
+  // dv is not a scalar.
   else
     {
-      /* Base address is the C address of the element of the object
+      // Base address is the C address of the element of the object
       // specified by
-      // subscripts. */
+      // subscripts.
       void *base_addr;
-      /* In order to properly account for Fortran's row order we need to
-      // transpose the subscripts. */
+      // In order to properly account for Fortran's row order we need to
+      // transpose the subscripts.
       CFI_index_t *tr_subscripts;
       CFI_dim_t *  tr_dim;
       tr_subscripts = malloc (rank * sizeof (CFI_index_t));
@@ -561,14 +559,14 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
           tr_subscripts[i] = subscripts[rank - i - 1];
           tr_dim[i]        = dv->dim[rank - i - 1];
         }
-      /* We assume column major order as that is how fortran stores
+      // We assume column major order as that is how fortran stores
       // arrays.
       // We calculate the memory address of the specified element via the
       // canonical array dimension reduction map and multiplying by the
       // memory
-      // stride. */
+      // stride.
       CFI_index_t index = tr_subscripts[0];
-      /* Make sure the first subscript is in-bounds. */
+      // Make sure the first subscript is in-bounds.
       if (subscripts[0] > dv->dim[0].extent - dv->dim[0].lower_bound)
         {
           fprintf (
@@ -582,11 +580,11 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
               CFI_ERROR_OUT_OF_BOUNDS);
           exit (EXIT_FAILURE);
         }
-      /* Start calculating the memory offset. */
+      // Start calculating the memory offset.
       CFI_index_t tmp_index = 1;
       for (int i = 1; i < rank; i++)
         {
-          /* Make sure the subscripts are in-bounds. */
+          // Make sure the subscripts are in-bounds.
           if (subscripts[i] > dv->dim[i].extent - dv->dim[i].lower_bound)
             {
               fprintf (stderr, "ISO_Fortran_binding.c: "
@@ -602,21 +600,21 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
                        CFI_ERROR_OUT_OF_BOUNDS);
               exit (EXIT_FAILURE);
             }
-          /* Find memory location of the subscripted item by mapping
+          // Find memory location of the subscripted item by mapping
           // the
           // subscripts
           // to a 1D array while taking the memory stride into
-          // account. */
+          // account.
           tmp_index *=
               tr_subscripts[i] * tr_dim[i - 1].extent * tr_dim[i - 1].sm;
           index += tmp_index;
         }
       free (tr_subscripts);
       free (tr_dim);
-      /* There's no way in C to do general arithmetic on a void pointer so
+      // There's no way in C to do general arithmetic on a void pointer so
       // we
       // cast to a char pointer, do the arithmetic and cast back to a void
-      // pointer. */
+      // pointer.
       base_addr = (char *) dv->base_addr + index;
       return base_addr;
     }
@@ -640,12 +638,12 @@ int CFI_is_contiguous (const CFI_cdesc_t *dv)
       exit (EXIT_FAILURE);
     }
 
-  /* There is no guarantee other arrays are contiguous. */
+  // There is no guarantee other arrays are contiguous.
   if (dv->attribute == CFI_attribute_pointer)
     {
       return 0;
     }
-  /* Allocatable, assume shape and assumed size arrays are always contiguous. */
+  // Allocatable, assume shape and assumed size arrays are always contiguous.
   else
     {
       return 1;
@@ -656,7 +654,7 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
                   const CFI_index_t upper_bounds[], size_t elem_len)
 {
 
-  /* C Descriptor should be allocated. */
+  // C Descriptor should be allocated.
   if (dv == NULL)
     {
       fprintf (stderr,
@@ -666,7 +664,7 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
       return CFI_INVALID_DESCRIPTOR;
     }
 
-  /* Base address of C Descriptor should be NULL. */
+  // Base address of C Descriptor should be NULL.
   if (dv->base_addr != NULL)
     {
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_allocate: Base address of C "
@@ -675,7 +673,7 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
       return CFI_ERROR_BASE_ADDR_NOT_NULL;
     }
 
-  /* The C Descriptor must be for an allocatable or pointer object. */
+  // The C Descriptor must be for an allocatable or pointer object.
   if (dv->attribute != CFI_attribute_pointer ||
       dv->attribute != CFI_attribute_allocatable)
     {
@@ -687,8 +685,8 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
       return CFI_INVALID_ATTRIBUTE;
     }
 
-  /* If the type is a character, the descriptor's elemenent length is replaced
-  // by the elem_len argument. */
+  // If the type is a character, the descriptor's elemenent length is replaced
+  // by the elem_len argument.
   if (dv->type == CFI_type_char || dv->type == CFI_type_ucs4_char ||
       dv->type != CFI_type_signed_char)
     {
@@ -697,9 +695,9 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
 
   size_t arr_len = 1;
 
-  /* If rank is greater than 0, lower_bounds and upper_bounds are used.
+  // If rank is greater than 0, lower_bounds and upper_bounds are used.
   // They're
-  // ignored otherwhise. */
+  // ignored otherwhise.
   if (dv->rank > 0)
     {
       if (lower_bounds == NULL || upper_bounds == NULL)
@@ -739,7 +737,7 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
 int CFI_deallocate (CFI_cdesc_t *dv)
 {
 
-  /* C Descriptor should be allocated. */
+  // C Descriptor should be allocated.
   if (dv == NULL)
     {
       fprintf (stderr,
@@ -749,7 +747,7 @@ int CFI_deallocate (CFI_cdesc_t *dv)
       return CFI_INVALID_DESCRIPTOR;
     }
 
-  /* C Descriptor must be for an allocatable or pointer variable. */
+  // C Descriptor must be for an allocatable or pointer variable.
   if (dv->attribute == CFI_attribute_other)
     {
       fprintf (stderr,
@@ -769,7 +767,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
                  const CFI_index_t upper_bounds[], const CFI_index_t strides[])
 {
 
-  /* Result must not be an allocatable array. */
+  // Result must not be an allocatable array.
   if (result->attribute == CFI_attribute_allocatable)
     {
       fprintf (stderr,
@@ -780,7 +778,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
       return CFI_INVALID_ATTRIBUTE;
     }
 
-  /* Base address of source must not be NULL. */
+  // Base address of source must not be NULL.
   if (source->base_addr == NULL)
     {
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_section: Base address of "
@@ -789,8 +787,8 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
       return CFI_ERROR_BASE_ADDR_NULL;
     }
 
-  /* Source must be some form of array (nonallocatable nonpointer array,
-  // allocated allocatable array or an associated pointer array). */
+  // Source must be some form of array (nonallocatable nonpointer array,
+  // allocated allocatable array or an associated pointer array).
   if (source->rank <= 0)
     {
       fprintf (stderr,
@@ -845,7 +843,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
   upper  = malloc (source->rank * sizeof (CFI_index_t));
   stride = malloc (source->rank * sizeof (CFI_index_t));
 
-  /* Lower bounds. */
+  // Lower bounds.
   if (lower_bounds == NULL)
     {
       for (int i = 0; i < source->rank; i++)
@@ -861,7 +859,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
         }
     }
 
-  /* Upper bounds. */
+  // Upper bounds.
   if (upper_bounds == NULL)
     {
       if (source->dim[source->rank].extent == -1)
@@ -887,7 +885,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
         }
     }
 
-  /* Stride */
+  // Stride
   if (strides == NULL)
     {
       for (int i = 0; i < source->rank; i++)
@@ -900,7 +898,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
       for (int i = 0; i < source->rank; i++)
         {
           stride[i] = strides[i];
-          /* If stride[i] = then lower[i] and upper[i] must be equal. */
+          // If stride[i] = then lower[i] and upper[i] must be equal.
           if (stride[i] == 0 && lower[i] != upper[i])
             {
               fprintf (stderr, "ISO_Fortran_binding.c: "
@@ -916,7 +914,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
         }
     }
 
-  /* Lower bounds. */
+  // Lower bounds.
   if (lower_bounds != NULL)
     {
       for (int i = 0; i < source->rank; i++)
@@ -954,7 +952,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
         }
     }
 
-  /* Upper bounds. */
+  // upper bounds.
   if (upper_bounds != NULL)
     {
       for (int i = 0; i < source->rank; i++)
@@ -985,7 +983,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
         }
     }
 
-  /* Update the result to describe the array section. */
+  // Update the result to describe the array section.
   result->base_addr = CFI_address (source, lower);
   for (int i = 0; i < result->rank; i++)
     {
@@ -1013,7 +1011,7 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
       return CFI_INVALID_ATTRIBUTE;
     }
 
-  /* Base address of source must not be NULL. */
+  // Base address of source must not be NULL.
   if (source->base_addr == NULL)
     {
       fprintf (stderr,
@@ -1097,7 +1095,7 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
 
   return CFI_SUCCESS;
 }
-
+/*
 void main ()
 {
   CFI_CDESC_T (2) * dv;
@@ -1129,13 +1127,13 @@ void main ()
           printf ("A[%d, %d] = %d\n", i + 1, j + 1, (char *) address);
         }
     }
-  /* subscripts[0] = 0;
+  // subscripts[0] = 0;
   // subscripts[1] = 0;
   // address = (CFI_index_t*) CFI_address(dv, subscripts);
   // printf("%d\n", (char*)address);
   // printf("%ld\n", *address);
   // printf("%d, %d, %d\n", sizeof(subscripts), sizeof(CFI_index_t),
-  // sizeof(test)); */
+  // sizeof(test));
   printf("type size in bytes = %d\n", (CFI_type_int128_t - (CFI_type_int128_t &
 CFI_type_mask)) >> CFI_type_kind_shift);
   printf("base type = %d\n", CFI_type_int128_t & CFI_type_mask);
@@ -1143,3 +1141,4 @@ CFI_type_mask)) >> CFI_type_kind_shift);
   free (dv->base_addr);
   free (dv);
 }
+*/
