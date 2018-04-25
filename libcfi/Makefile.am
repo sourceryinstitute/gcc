@@ -5,7 +5,7 @@ toolexeclib_LTLIBRARIES = libcfi.la
 nodist_libsubinclude_HEADERS = ISO_Fortran_binding.h
 libsubincludedir = $(libdir)/gcc/$(target_alias)/$(gcc_version)/include
 
-libcfi_la_SOURCES = ISO_Fortran_binding.c
+libquadmath_la_SOURCES = ISO_Fortran_binding.c
 
 # Work around what appears to be a GNU make bug handling MAKEFLAGS
 # values defined in terms of make variables, as is the case for CC and
