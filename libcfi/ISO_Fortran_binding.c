@@ -1098,48 +1098,48 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
   return CFI_SUCCESS;
 }
 
-void main ()
-{
-  CFI_CDESC_T (2) * dv;
-  CFI_index_t  subscripts[2];
-  CFI_index_t  test[0];
-  CFI_index_t *address;
-
-  dv                             = malloc (sizeof (CFI_CDESC_T (2)));
-  dv->base_addr                  = malloc (sizeof (CFI_index_t));
-  *(CFI_index_t *) dv->base_addr = 1;
-  printf ("%s\n", type (*dv->base_addr));
-  printf ("------------\n");
-  printf ("%ld\n", dv->base_addr);
-  dv->rank               = 2;
-  dv->dim[0].lower_bound = 1;
-  dv->dim[0].extent      = 3;
-  dv->dim[0].sm          = 1;
-  dv->dim[1].lower_bound = 1;
-  dv->dim[1].extent      = 2;
-  dv->dim[1].sm          = 1;
-  printf ("------------\n");
-  for (int i = 0; i < dv->dim[0].extent; i++)
-    {
-      for (int j = 0; j < dv->dim[1].extent; j++)
-        {
-          subscripts[0] = i;
-          subscripts[1] = j;
-          address       = (CFI_index_t *) CFI_address (dv, subscripts);
-          printf ("A[%d, %d] = %d\n", i + 1, j + 1, (char *) address);
-        }
-    }
-  /* subscripts[0] = 0;
-  // subscripts[1] = 0;
-  // address = (CFI_index_t*) CFI_address(dv, subscripts);
-  // printf("%d\n", (char*)address);
-  // printf("%ld\n", *address);
-  // printf("%d, %d, %d\n", sizeof(subscripts), sizeof(CFI_index_t),
-  // sizeof(test)); */
-  printf("type size in bytes = %d\n", (CFI_type_int128_t - (CFI_type_int128_t &
-CFI_type_mask)) >> CFI_type_kind_shift);
-  printf("base type = %d\n", CFI_type_int128_t & CFI_type_mask);
-
-  free (dv->base_addr);
-  free (dv);
-}
+// void main ()
+// {
+//   CFI_CDESC_T (2) * dv;
+//   CFI_index_t  subscripts[2];
+//   CFI_index_t  test[0];
+//   CFI_index_t *address;
+//
+//   dv                             = malloc (sizeof (CFI_CDESC_T (2)));
+//   dv->base_addr                  = malloc (sizeof (CFI_index_t));
+//   *(CFI_index_t *) dv->base_addr = 1;
+//   printf ("%s\n", type (*dv->base_addr));
+//   printf ("------------\n");
+//   printf ("%ld\n", dv->base_addr);
+//   dv->rank               = 2;
+//   dv->dim[0].lower_bound = 1;
+//   dv->dim[0].extent      = 3;
+//   dv->dim[0].sm          = 1;
+//   dv->dim[1].lower_bound = 1;
+//   dv->dim[1].extent      = 2;
+//   dv->dim[1].sm          = 1;
+//   printf ("------------\n");
+//   for (int i = 0; i < dv->dim[0].extent; i++)
+//     {
+//       for (int j = 0; j < dv->dim[1].extent; j++)
+//         {
+//           subscripts[0] = i;
+//           subscripts[1] = j;
+//           address       = (CFI_index_t *) CFI_address (dv, subscripts);
+//           printf ("A[%d, %d] = %d\n", i + 1, j + 1, (char *) address);
+//         }
+//     }
+//   /* subscripts[0] = 0;
+//   // subscripts[1] = 0;
+//   // address = (CFI_index_t*) CFI_address(dv, subscripts);
+//   // printf("%d\n", (char*)address);
+//   // printf("%ld\n", *address);
+//   // printf("%d, %d, %d\n", sizeof(subscripts), sizeof(CFI_index_t),
+//   // sizeof(test)); */
+//   printf("type size in bytes = %d\n", (CFI_type_int128_t - (CFI_type_int128_t &
+// CFI_type_mask)) >> CFI_type_kind_shift);
+//   printf("base type = %d\n", CFI_type_int128_t & CFI_type_mask);
+//
+//   free (dv->base_addr);
+//   free (dv);
+// }
