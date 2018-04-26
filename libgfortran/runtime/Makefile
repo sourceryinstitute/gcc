@@ -13,4 +13,4 @@ ISO_Fortran_binding_tests.o: ISO_Fortran_binding_tests.c
 	$(CC) $(CFLAGS) -c ISO_Fortran_binding_tests.c
 
 clean:
-	rm .*o
+	rm *.o ISO_Fortran_binding_tests

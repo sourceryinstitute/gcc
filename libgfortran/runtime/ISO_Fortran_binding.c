@@ -55,7 +55,7 @@ header file.
 //   // C address of the first element in Fortran array order.
 //   void *base_addr;
 //   // Storage size in bytes of object if scalar.
-//   // Storage size in bytes of a single elment in object if not scalar.
+//   // Storage size in bytes of a single element in object if not scalar.
 //   size_t elem_len;
 //   // CFI_VERSION in ISO_Fortran.h file.
 //   int version;
@@ -143,279 +143,36 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
       return CFI_INVALID_DESCRIPTOR;
     }
 
-  size_t type_size = 0;
   /* base_addr should be NULL or an appropriately aligned address for an object
    * of the specified type. If it is not NULL the types and elem_len must be
    * consitent with the type and type parameters of the Fortran data. In order
    * to find out if that's the case, we must invert the type definitions in
    * ISO_Fortran_binding.h. The answer tells us the size in bytes of each data
    * type element. */
-  if (base_addr != NULL)
-    {
-      // Check for integer data types.
-      type_size = (type - CFI_type_Integer) >> CFI_type_kind_shift;
-      // This is only true for integer data types.
-      if (type_size == 1 || type_size == 2 || type_size == 4 ||
-          type_size == 8 || type_size == 16)
-        {
-          if (sizeof (base_addr) != type_size)
-            {
-              fprintf (stderr, "ISO_Fortran_binding.c: "
-                               "CFI_establish: Byte size of "
-                               "Base address, base_addr, must be "
-                               "equal to the byte "
-                               "size, %d, of the data type, %d. "
-                               "(Error No. %d).\n",
-                       type_size, type, CFI_INVALID_ELEM_LEN);
-              return CFI_INVALID_ELEM_LEN;
-            }
-        }
-      // We use else because we need to redefine type_size using another
-      // CFI_type.
-      else
-        {
-          // Check for real data types.
-          type_size = (type - CFI_type_Real) >> CFI_type_kind_shift;
-          // This is only true for real data types.
-          if (type_size == 4 || type_size == 8 || type_size == 10 ||
-              type_size == 16)
-            {
-              // REAL(10) has byte length of 64 bytes. All the
-              // others have the
-              // same
-              // number of bytes as the data type number.
-              if (type_size == 10)
-                {
-                  type_size = 64;
-                  if (sizeof (base_addr) != type_size)
-                    {
-                      fprintf (stderr, "ISO_Fortran_binding.c: "
-                                       "CFI_establish: Byte size "
-                                       "of Base address, base_addr, "
-                                       "must be equal to the "
-                                       "byte size, %d, of the data "
-                                       "type, %d. (Error No. "
-                                       "%d).\n",
-                               type_size, type, CFI_INVALID_ELEM_LEN);
-                      return CFI_INVALID_ELEM_LEN;
-                    }
-                }
-              // Other REAL data types.
-              else
-                {
-                  if (sizeof (base_addr) != type_size)
-                    {
-                      fprintf (stderr, "ISO_Fortran_binding.c: "
-                                       "CFI_establish: Byte size "
-                                       "of Base address, base_addr, "
-                                       "must be equal to the "
-                                       "byte size, %d, of the data "
-                                       "type, %d. (Error No. "
-                                       "%d).\n",
-                               type_size, type, CFI_INVALID_ELEM_LEN);
-                      return CFI_INVALID_ELEM_LEN;
-                    }
-                }
-            }
-          // We use else because we need to redefine type_size using
-          // another
-          // CFI_type.
-          else
-            {
-              // Check for complex data types.
-              type_size = (type - CFI_type_Complex) >> CFI_type_kind_shift;
-              // This is only true for complex data types.
-              if (type_size == 4 || type_size == 8 || type_size == 10 ||
-                  type_size == 16)
-                {
-                  // COMPLEX(10) has byte length of 2*64
-                  // bytes. All the others
-                  // have
-                  // twice the number of bytes as the data
-                  // type number.
-                  if (type_size == 10)
-                    {
-                      type_size = 128;
-                      if (sizeof (base_addr) != type_size)
-                        {
-                          fprintf (stderr, "ISO_Fortran_binding.c:"
-                                           " CFI_establish: Byte "
-                                           "size "
-                                           "of Base address, "
-                                           "base_addr, must be "
-                                           "equal to "
-                                           "the byte size, %d, of "
-                                           "the data type, %d. "
-                                           "(Error "
-                                           "No. %d).\n",
-                                   type_size, type, CFI_INVALID_ELEM_LEN);
-                          return CFI_INVALID_ELEM_LEN;
-                        }
-                    }
-                  else
-                    {
-                      type_size = 2 * type_size;
-                      // Other COMPLEX data types.
-                      if (sizeof (base_addr) != type_size)
-                        {
-                          fprintf (stderr, "ISO_Fortran_binding.c:"
-                                           " CFI_establish: Byte "
-                                           "size "
-                                           "of Base address, "
-                                           "base_addr, must be "
-                                           "equal to "
-                                           "the byte size, %d, of "
-                                           "the data type, %d. "
-                                           "(Error "
-                                           "No. %d).\n",
-                                   type_size, type, CFI_INVALID_ELEM_LEN);
-                          return CFI_INVALID_ELEM_LEN;
-                        }
-                    }
-                }
-              // We use else because we need to redefine type_size
-              // using another
-              // CFI_type.
-              else
-                {
-                  // Check for logical data type.
-                  type_size = (type - CFI_type_Logical) >> CFI_type_kind_shift;
-                  if (type_size == 1 && sizeof (base_addr) != type_size)
-                    {
-                      fprintf (stderr, "ISO_Fortran_binding.c: CFI_establish: "
-                                       "Byte size of Base address, base_addr, "
-                                       "must be equal to the byte size, %d, of "
-                                       "the data type, %d. (Error No. %d).\n",
-                               type_size, type, CFI_INVALID_ELEM_LEN);
-                      return CFI_INVALID_ELEM_LEN;
-                    }
-                  // We use else because we need to redefine
-                  // type_size using
-                  // another
-                  // CFI_type.
-                  else
-                    {
-                      type_size =
-                          (type - CFI_type_Character) >> CFI_type_kind_shift;
-                      if (type_size == 1 || type_size == 4)
-                        {
-                          if (sizeof (base_addr) != type_size)
-                            {
-                              fprintf (stderr, "ISO_Fortran_binding.c: "
-                                               "CFI_establish: Byte size of "
-                                               "Base "
-                                               "address, "
-                                               "base_addr, "
-                                               "must be "
-                                               "equal to the "
-                                               "byte size, "
-                                               "%d, of the "
-                                               "data "
-                                               "type, "
-                                               "%d. (Error "
-                                               "No. %d).\n",
-                                       type_size, type, CFI_INVALID_ELEM_LEN);
-                              return CFI_INVALID_ELEM_LEN;
-                            }
-                        }
-                      // We've checked all normal types
-                      // and none match.
-                      else
-                        {
-                          // Clever trick so we don't
-                          // have to evaluate a
-                          // complicated if
-                          // later on.
-                          type_size = -1;
-                          if (type == CFI_type_other || type == CFI_type_struct)
-                            {
-                              if (elem_len <= 0 ||
-                                  sizeof (base_addr) != elem_len)
-                                {
-                                  fprintf (stderr, "ISO_Fortra"
-                                                   "n_"
-                                                   "bindin"
-                                                   "g.c: "
-                                                   "CFI_"
-                                                   "establ"
-                                                   "ish: "
-                                                   "Byte "
-                                                   "size "
-                                                   "of "
-                                                   "Base "
-                                                   "addres"
-                                                   "s, "
-                                                   "base_"
-                                                   "addr, "
-                                                   "must "
-                                                   "be "
-                                                   "equal "
-                                                   "to "
-                                                   "the "
-                                                   "byte "
-                                                   "size, "
-                                                   "%d, "
-                                                   "of "
-                                                   "the "
-                                                   "data "
-                                                   "type, "
-                                                   "%d. "
-                                                   "(Error"
-                                                   " No. "
-                                                   "%d)."
-                                                   "\n",
-                                           type_size, type,
-                                           CFI_INVALID_ELEM_LEN);
-                                  return CFI_INVALID_ELEM_LEN;
-                                }
-                            }
-                          // We've checked all types
-                          // and none match.
-                          else
-                            {
-                              fprintf (stderr, "ISO_Fortran_"
-                                               "binding.c: "
-                                               "CFI_establish:"
-                                               " "
-                                               "Invalid "
-                                               "data type, "
-                                               "%d. (Error "
-                                               "No. %d).\n",
-                                       type, CFI_INVALID_TYPE);
-                              return CFI_INVALID_TYPE;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
   // base_addr is NULL
-  else
+
+  // If C Descripor will be established as an unallocated allocatable,
+  // attribute must be CFI_attribute_allocatable.
+  if (attribute == CFI_attribute_pointer && base_addr == NULL)
     {
-      // If C Descripor will be established as an unallocated allocatable,
-      // attribute must be CFI_attribute_allocatable.
-      if (attribute == CFI_attribute_pointer)
-        {
-          fprintf (stderr, "ISO_Fortran_binding.c: CFI_establish: If the base "
-                           "address is NULL (base_addr == NULL) then the "
-                           "attribute "
-                           "must be for an allocatable (attribute == "
-                           "%d) or other (attribute == "
-                           "%d). (Error No. %d).\n",
-                   CFI_attribute_allocatable, CFI_attribute_other,
-                   CFI_INVALID_ATTRIBUTE);
-          return CFI_INVALID_ATTRIBUTE;
-        }
+      fprintf (stderr, "ISO_Fortran_binding.c: CFI_establish: If the base "
+                       "address is NULL (base_addr == NULL) then the "
+                       "attribute "
+                       "must be for an allocatable (attribute == "
+                       "%d) or other (attribute == "
+                       "%d). (Error No. %d).\n",
+               CFI_attribute_allocatable, CFI_attribute_other,
+               CFI_INVALID_ATTRIBUTE);
+      return CFI_INVALID_ATTRIBUTE;
     }
 
-  if (type_size == -1)
+  if (type == CFI_type_struct || type == CFI_type_other)
     {
       dv->elem_len = elem_len;
     }
   else
     {
-      dv->elem_len = type_size;
+      dv->elem_len = (type - (type & CFI_type_mask)) >> CFI_type_kind_shift;
     }
   dv->version   = CFI_VERSION;
   dv->rank      = rank;
@@ -1037,17 +794,18 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
     }
 
   /* Check the element length */
-  size_t type_size = (result->type - CFI_type_Character) >> CFI_type_kind_shift;
-  if (type_size == 1 || type_size == 4)
+  size_t base_type_size =
+      (result->type - CFI_type_Character) >> CFI_type_kind_shift;
+  if (base_type_size == 1 || base_type_size == 4)
     {
-      if (elem_len != type_size)
+      if (elem_len != base_type_size)
         {
           fprintf (stderr, "ISO_Fortran_binding.c: "
                            "CFI_select_part: Element length, elem_len = %d, "
                            "must be equal to the size in bytes of a Fortran "
-                           "character, type_size = %d. (Error "
+                           "character, base_type_size = %d. (Error "
                            "No. %d).\n",
-                   elem_len, type_size, CFI_INVALID_ELEM_LEN);
+                   elem_len, base_type_size, CFI_INVALID_ELEM_LEN);
           return CFI_INVALID_ELEM_LEN;
         }
       result->elem_len = elem_len;
@@ -1058,15 +816,15 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
     }
   else
     {
-      type_size = (result->type - CFI_type_Integer) >> CFI_type_kind_shift;
-      if (type_size == 1 && elem_len != type_size)
+      base_type_size = (result->type - CFI_type_Integer) >> CFI_type_kind_shift;
+      if (base_type_size == 1 && elem_len != base_type_size)
         {
           fprintf (stderr, "ISO_Fortran_binding.c: "
                            "CFI_select_part: Element length, elem_len = %d, "
                            "must be equal to the size in bytes of a Fortran "
-                           "character, type_size = %d. (Error "
+                           "character, base_type_size = %d. (Error "
                            "No. %d).\n",
-                   elem_len, type_size, CFI_INVALID_ELEM_LEN);
+                   elem_len, base_type_size, CFI_INVALID_ELEM_LEN);
           return CFI_INVALID_ELEM_LEN;
         }
       result->elem_len = elem_len;
