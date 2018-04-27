@@ -110,69 +110,62 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                    const CFI_index_t extents[])
 {
 
-  // C Descriptor should be allocated.
+  /* C Descriptor should be allocated. */
   if (dv == NULL)
     {
-      fprintf (stderr,
-               "ISO_Fortran_binding.c: CFI_establish: NULL C Descriptor. "
-               "(Error No. %d).\n",
+      fprintf (stderr, "ISO_Fortran_binding.c: CFI_establish: NULL C "
+                       "Descriptor. (Error No. %d).\n",
                CFI_INVALID_DESCRIPTOR);
       return CFI_INVALID_DESCRIPTOR;
     }
 
-  /*// C Descriptor must be big enough to hold an object of a specified rank.
-  if (sizeof (dv) < sizeof (CFI_CDESC_T (rank)))
-    {
-      fprintf (stderr,
-               "ISO_Fortran_binding.c: CFI_establish: C Descriptor is not "
-               "big enough to hold an object of rank %d. (Error No. "
-               "%d).\n",
-               rank, CFI_INVALID_DESCRIPTOR);
-      return CFI_INVALID_DESCRIPTOR;
-    }*/
-
-  // C Descriptor must not be an allocated allocatable.
+  /* C Descriptor must not be an allocated allocatable. */
   if (dv->attribute == CFI_attribute_allocatable && dv->base_addr != NULL)
     {
       fprintf (stderr,
                "ISO_Fortran_binding.c: CFI_establish: If the C Descriptor "
-               "represents an allocatable variable (dv->attribute == "
-               "%d), its base address must be NULL "
-               "(dv->base_addr == NULL). (Error No. %d).\n",
+               "represents an allocatable variable (dv->attribute == %d), its "
+               "base address must be NULL (dv->base_addr == NULL). (Error No. "
+               "%d).\n",
                CFI_attribute_allocatable, CFI_INVALID_DESCRIPTOR);
       return CFI_INVALID_DESCRIPTOR;
     }
 
-  /* base_addr should be NULL or an appropriately aligned address for an object
-   * of the specified type. If it is not NULL the types and elem_len must be
-   * consitent with the type and type parameters of the Fortran data. In order
-   * to find out if that's the case, we must invert the type definitions in
-   * ISO_Fortran_binding.h. The answer tells us the size in bytes of each data
-   * type element. */
-  // base_addr is NULL
-
-  // If C Descripor will be established as an unallocated allocatable,
-  // attribute must be CFI_attribute_allocatable.
-  if (attribute == CFI_attribute_pointer && base_addr == NULL)
+  /* If base address is not a NULL, the established C Descriptor is for a
+   * nonallocatable entity. */
+  if (attribute == CFI_attribute_allocatable && base_addr != NULL)
     {
-      fprintf (stderr, "ISO_Fortran_binding.c: CFI_establish: If the base "
-                       "address is NULL (base_addr == NULL) then the "
-                       "attribute "
-                       "must be for an allocatable (attribute == "
-                       "%d) or other (attribute == "
-                       "%d). (Error No. %d).\n",
-               CFI_attribute_allocatable, CFI_attribute_other,
-               CFI_INVALID_ATTRIBUTE);
+      fprintf (stderr, "ISO_Fortran_binding.c: CFI_establish: If base address "
+                       "is not NULL (base_addr != NULL), the established C "
+                       "Descriptor is for a nonallocatable entity (attribute "
+                       "!= %d). (Error No. %d).\n",
+               CFI_attribute_allocatable, CFI_INVALID_ATTRIBUTE);
       return CFI_INVALID_ATTRIBUTE;
     }
 
+  dv->base_addr = base_addr;
   if (type == CFI_type_struct || type == CFI_type_other)
     {
       dv->elem_len = elem_len;
     }
   else
     {
-      dv->elem_len = (type - (type & CFI_type_mask)) >> CFI_type_kind_shift;
+      /* base_type describes the intrinsic type with kind parameter. */
+      size_t base_type = type & CFI_type_mask;
+      /* base_type_size is the size in bytes of the variable as given by its
+       * kind parameter. */
+      size_t base_type_size = (type - base_type) >> CFI_type_kind_shift;
+      /* Kind types 10 have a size of 64 bytes. */
+      if (base_type_size == 10)
+        {
+          base_type_size = 64;
+        }
+      /* Complex numbers are twice the size of their real counterparts. */
+      if (base_type == CFI_type_Complex)
+        {
+          base_type_size *= 2;
+        }
+      dv->elem_len = base_type_size;
     }
   dv->version   = CFI_VERSION;
   dv->rank      = rank;
@@ -183,10 +176,11 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
     {
       if (extents == NULL)
         {
-          fprintf (stderr, "ISO_Fortran_binding.c: CFI_establish: Extents "
-                           "must not "
-                           "be NULL, extents != NULL. (Error No. %d).\n",
-                   CFI_INVALID_EXTENT);
+          fprintf (stderr, "ISO_Fortran_binding.c: CFI_establish: Extents must "
+                           "not be NULL (extents != NULL) if the rank is "
+                           "greater than zero (rank == %d) and base address is "
+                           "not NULL (base_addr != NULL). (Error No. %d).\n",
+                   rank, CFI_INVALID_EXTENT);
           return CFI_INVALID_ATTRIBUTE;
         }
       for (int i = 0; i < rank; i++)
@@ -195,7 +189,31 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
         }
     }
 
-  return CFI_SUCCESS;
+  if (rank == 0)
+    {
+      if (attribute == CFI_attribute_pointer)
+        {
+          dv->dim[0].lower_bound = 0;
+        }
+    }
+  else if (rank > 0)
+    {
+      for (int i = 0; i <= rank; i++)
+        {
+          if (attribute == CFI_attribute_pointer)
+            {
+              dv->dim[i].lower_bound = 0;
+            }
+        }
+    }
+  if (attribute == CFI_attribute_pointer)
+    {
+      dv->dim[i - 1].lower_bound = 0;
+    }
+}
+}
+
+return CFI_SUCCESS;
 }
 
 int CFI_setpointer (CFI_cdesc_t *result, CFI_cdesc_t *source,
@@ -599,8 +617,8 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
   CFI_index_t *lower;
   CFI_index_t *upper;
   CFI_index_t *stride;
-  lower  = malloc (source->rank * sizeof (CFI_index_t));
-  upper  = malloc (source->rank * sizeof (CFI_index_t));
+  lower = malloc (source->rank * sizeof (CFI_index_t));
+  upper = malloc (source->rank * sizeof (CFI_index_t));
   stride = malloc (source->rank * sizeof (CFI_index_t));
 
   // Lower bounds.
