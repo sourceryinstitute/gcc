@@ -181,7 +181,7 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                            "greater than zero (rank == %d) and base address is "
                            "not NULL (base_addr != NULL). (Error No. %d).\n",
                    rank, CFI_INVALID_EXTENT);
-          return CFI_INVALID_ATTRIBUTE;
+          return CFI_INVALID_EXTENT;
         }
       for (int i = 0; i < rank; i++)
         {
@@ -189,31 +189,15 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
         }
     }
 
-  if (rank == 0)
-    {
-      if (attribute == CFI_attribute_pointer)
-        {
-          dv->dim[0].lower_bound = 0;
-        }
-    }
-  else if (rank > 0)
-    {
-      for (int i = 0; i <= rank; i++)
-        {
-          if (attribute == CFI_attribute_pointer)
-            {
-              dv->dim[i].lower_bound = 0;
-            }
-        }
-    }
   if (attribute == CFI_attribute_pointer)
     {
-      dv->dim[i - 1].lower_bound = 0;
+      for (int i = 0; i < rank; i++)
+        {
+          dv->dim[i].lower_bound = 0;
+        }
     }
-}
-}
 
-return CFI_SUCCESS;
+  return CFI_SUCCESS;
 }
 
 int CFI_setpointer (CFI_cdesc_t *result, CFI_cdesc_t *source,
@@ -617,8 +601,8 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
   CFI_index_t *lower;
   CFI_index_t *upper;
   CFI_index_t *stride;
-  lower = malloc (source->rank * sizeof (CFI_index_t));
-  upper = malloc (source->rank * sizeof (CFI_index_t));
+  lower  = malloc (source->rank * sizeof (CFI_index_t));
+  upper  = malloc (source->rank * sizeof (CFI_index_t));
   stride = malloc (source->rank * sizeof (CFI_index_t));
 
   // Lower bounds.

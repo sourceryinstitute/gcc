@@ -46,38 +46,38 @@ int main (void)
                   base_type_size = elem_len;
                 }
 
-              CFI_CDESC_T (rank) est_test_base_addr;
+              CFI_CDESC_T (rank) test1;
               /* We do this because C sometimes doesn't make the structures with
-               * a
-               * null base_addr which leads to weird behaviour inside
+               * a null base_addr which leads to weird behaviour inside
                * CFI_establish.
                */
-              if (est_test_base_addr.base_addr != NULL)
+              if (test1.base_addr != NULL)
                 {
-                  est_test_base_addr.base_addr = NULL;
-                  free (est_test_base_addr.base_addr);
+                  test1.base_addr = NULL;
+                  free (test1.base_addr);
                 }
-              ind = CFI_establish ((CFI_cdesc_t *)&est_test_base_addr, NULL,
-                                   attribute, type[i], elem_len, rank, NULL);
+              ind = CFI_establish ((CFI_cdesc_t *)&test1, NULL, attribute,
+                                   type[i], elem_len, rank, NULL);
               printf ("attribute = %d\ntype = %d\nbase_type = %ld\nrank = %d\n",
                       attribute, type[i], base_type, rank);
               if (ind != CFI_SUCCESS)
                 {
-                  printf ("CFI_establish return value = %d\n\n", ind);
+                  printf ("CFI_establish return value = %d\n", ind);
                   errno *= 2;
-                  goto next_attribute;
+                  printf ("errno = %ld\n\n", errno);
+                  goto next_attribute1;
                 }
-              if (attribute != est_test_base_addr.attribute)
+              if (attribute != test1.attribute)
                 {
                   printf ("Attribute fail.\n");
                   errno *= 3;
                 }
-              if (type[i] != est_test_base_addr.type)
+              if (type[i] != test1.type)
                 {
                   printf ("Type fail.\n");
                   errno *= 5;
                 }
-              if (rank != est_test_base_addr.rank)
+              if (rank != test1.rank)
                 {
                   printf ("Rank fail.\n");
                   errno *= 7;
@@ -92,7 +92,7 @@ int main (void)
                 {
                   elem_len *= 2;
                 }
-              if (elem_len != est_test_base_addr.elem_len)
+              if (elem_len != test1.elem_len)
                 {
                   printf ("Element length fail: type_idx = %d., elem_len = "
                           "%ld\n",
@@ -101,47 +101,135 @@ int main (void)
                 }
               printf ("errno = %ld\n\n", errno);
             }
-        next_attribute:;
+        next_attribute1:;
         }
     }
 
-    for (int i=0;i<0;i++){
-      printf("yehoy");
-    }
+  printf ("Test CFI_establish: dv.base_addr != NULL.\n\n");
+  CFI_index_t *extents = NULL;
+  elem_len             = 0;
+  /* Loop through type. */
+  for (int i = 0; i < 10; i++)
+    {
+      /* Loop through attribute. */
+      for (int j = 1; j <= 3; j++)
+        {
+          attribute = j;
+          /* Loop through rank. */
+          for (int k = 0; k <= CFI_MAX_RANK; k++)
+            {
+              errno = 1;
+              rank  = k;
+              if (extents != NULL)
+                {
+                  free (extents);
+                }
+              extents = malloc (k * sizeof (CFI_index_t));
+              for (int r = 0; r < k; r++)
+                {
+                  extents[r] = r + 1;
+                }
+              if (type[i] != CFI_type_struct && type[i] != CFI_type_other)
+                {
+                  base_type      = type[i] & CFI_type_mask;
+                  base_type_size = (type[i] - base_type) >> CFI_type_kind_shift;
+                }
+              else
+                {
+                  base_type      = type[i];
+                  base_type_size = elem_len;
+                }
 
-  // /* Test basic types */
-  // attribute = CFI_attribute_pointer;
-  // rank      = 0;
-  // CFI_CDESC_T (rank) est_test_int;
-  //
-  // /* Integers */
-  // size_t int_byte_arr[5] = {1, 2, 4, 8, 16};
-  // void * base_addr       = NULL;
-  // for (int i = 0; i < 5; i++)
-  //   {
-  //     if (base_addr != NULL)
-  //       {
-  //         free (base_addr);
-  //       }
-  //     type      = CFI_type_Integer + (int_byte_arr[i] <<
-  //     CFI_type_kind_shift);
-  //     elem_len  = int_byte_arr[i];
-  //     base_addr = NULL;
-  //     base_addr = malloc (type);
-  //     ind = CFI_establish ((CFI_cdesc_t *)&est_test_int, &base_addr,
-  //     attribute,
-  //                          type, elem_len, rank, NULL);
-  //     if (ind != CFI_SUCCESS)
-  //       {
-  //         base_type      = type & CFI_type_mask;
-  //         base_type_size = (type - base_type) >> CFI_type_kind_shift;
-  //         printf ("Base type = %ld\n", base_type);
-  //         printf ("Base type size (bytes) = %ld\n", base_type_size);
-  //         return -1;
-  //       }
-  //   }
-  // base_type      = type & CFI_type_mask;
-  // base_type_size = (type - base_type) >> CFI_type_kind_shift;
-  // printf ("Base type = %ld\n", base_type);
-  // printf ("Base type size (bytes) = %ld\n", base_type_size);
+              CFI_CDESC_T (rank) test2;
+              /* We do this because C sometimes doesn't make the structures with
+               * a null base_addr which leads to weird behaviour inside
+               * CFI_establish.
+               */
+              if (test2.base_addr != NULL)
+                {
+                  test2.base_addr = NULL;
+                  free (test2.base_addr);
+                }
+              ind = CFI_establish ((CFI_cdesc_t *)&test2, &ind, attribute,
+                                   type[i], elem_len, rank, extents);
+              printf ("attribute = %d\ntype = %d\nbase_type = %ld\nrank = %d\n",
+                      attribute, type[i], base_type, rank);
+              if (ind != CFI_SUCCESS)
+                {
+                  printf ("CFI_establish return value = %d\n", ind);
+                  errno *= 2;
+                  printf ("errno = %ld\n\n", errno);
+                  goto next_attribute2;
+                }
+              if (attribute != test2.attribute)
+                {
+                  printf ("Attribute fail.\n");
+                  errno *= 3;
+                }
+              if (type[i] != test2.type)
+                {
+                  printf ("Type fail.\n");
+                  errno *= 5;
+                }
+              if (rank != test2.rank)
+                {
+                  printf ("Rank fail.\n");
+                  errno *= 7;
+                }
+
+              elem_len = base_type_size;
+              if (base_type_size == 10)
+                {
+                  elem_len = 64;
+                }
+              if (base_type == CFI_type_Complex)
+                {
+                  elem_len *= 2;
+                }
+              if (elem_len != test2.elem_len)
+                {
+                  printf ("Element length fail: type_idx = %d., elem_len = "
+                          "%ld\n",
+                          i, elem_len);
+                  errno *= 11;
+                }
+
+              printf ("extents = [ ");
+              for (int r = 0; r < k; r++)
+                {
+                  if (extents[r] != test2.dim[r].extent)
+                    {
+                      printf ("Extents fail: extents[%d] = %ld., "
+                              "dv.dim[%d].extent = %ld\n",
+                              r, extents[r], r, test2.dim[r].extent);
+                      errno *= 13;
+                    }
+                  printf ("%ld ", extents[r]);
+                }
+              printf ("]\n");
+
+              if (attribute == CFI_attribute_pointer)
+                {
+                  printf ("test2.dim[].lower_bound = [ ");
+                  for (int r = 0; r < k; r++)
+                    {
+                      if (test2.dim[r].lower_bound != 0)
+                        {
+                          printf (
+                              "Dimension lower bound fail: if the attribute is "
+                              "for a pointer, the lower bounds of every "
+                              "dimension must be zero, "
+                              "test2.dim[%d].lower_bound = %ld",
+                              r, test2.dim[r].lower_bound);
+                          errno *= 17;
+                        }
+                      printf ("%ld ", test2.dim[r].lower_bound);
+                    }
+                  printf ("]\n");
+                }
+              printf ("errno = %ld\n\n", errno);
+            }
+        next_attribute2:;
+        }
+    }
 }
