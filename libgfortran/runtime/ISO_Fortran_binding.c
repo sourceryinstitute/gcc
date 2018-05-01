@@ -464,9 +464,9 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
       if (lower_bounds == NULL || upper_bounds == NULL)
         {
           fprintf (stderr,
-                   "ISO_Fortran_binding.c: CFI_allocate: If rank > 0, "
+                   "ISO_Fortran_binding.c: CFI_allocate: If rank > 0 ("
                    "rank "
-                   "= %d, the upper and lower bounds arguments, "
+                   "= %d) the upper and lower bounds arguments, "
                    "upper_bounds[] and lower_bounds[], must not be NULL. "
                    "(Error No. %d).\n",
                    dv->rank, CFI_INVALID_EXTENT);

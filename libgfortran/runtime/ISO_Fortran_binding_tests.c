@@ -190,7 +190,7 @@ int main (void)
               if (elem_len != test2.elem_len)
                 {
                   printf ("Element length fail: type_idx = %d., elem_len = "
-                          "%ld\n",
+                          "%ld must be equal.\n",
                           i, elem_len);
                   errno *= 11;
                 }
@@ -220,7 +220,7 @@ int main (void)
                               "Dimension lower bound fail: if the attribute is "
                               "for a pointer, the lower bounds of every "
                               "dimension must be zero, "
-                              "test2.dim[%d].lower_bound = %ld",
+                              "test2.dim[%d].lower_bound = %ld.\n",
                               r, test2.dim[r].lower_bound);
                           errno *= 17;
                         }
@@ -251,6 +251,12 @@ int main (void)
         {
           base_type      = type[i];
           base_type_size = 666;
+        }
+      else if (type[i] == CFI_type_char || type[i] == CFI_type_ucs4_char ||
+               type[i] == CFI_type_signed_char)
+        {
+          base_type      = type[i] & CFI_type_mask;
+          base_type_size = 3;
         }
       else
         {
@@ -307,69 +313,120 @@ int main (void)
                   test3.base_addr = NULL;
                   free (test3.base_addr);
                 }
-              if (attribute == CFI_attribute_other)
-                {
-                  goto next_attribute3;
-                }
               ind = CFI_establish ((CFI_cdesc_t *)&test3, NULL, attribute,
                                    type[i], elem_len, rank, extents);
               ind = CFI_allocate ((CFI_cdesc_t *)&test3, lower, upper,
                                   base_type_size);
               printf ("type = %ld\nelem_len = %ld\n", base_type,
                       test3.elem_len);
+              if (ind != CFI_SUCCESS)
+                {
+                  errno *= 2;
+                  goto next_attribute3;
+                }
               for (int r = 0; r < rank; r++)
                 {
                   if (lower[r] != test3.dim[r].lower_bound)
                     {
-                      printf ("Dimension lower bound fail: lower[%d] = %ld, "
-                              "test3.dim[%d].lower_bound = %ld\n",
-                              r, lower[r], r, test3.dim[r].lower_bound);
-                      errno *= 2;
+                      printf (
+                          "Dimension lower bound fail: lower[%d] = %ld, "
+                          "test3.dim[%d].lower_bound = %ld must be equal.\n",
+                          r, lower[r], r, test3.dim[r].lower_bound);
+                      errno *= 3;
                     }
                   if (upper[r] - test3.dim[r].lower_bound + 1 !=
                       test3.dim[r].extent)
                     {
                       printf ("Extent fail: upper[%d] - "
                               "test3.dim[%d].lower_bound + 1 = %ld, "
-                              "test3.dim[%d].extent = %ld\n",
+                              "test3.dim[%d].extent = %ld must be equal.\n",
                               r, r, upper[r] - test3.dim[r].lower_bound + 1, r,
                               test3.dim[r].lower_bound);
-                      errno *= 3;
+                      errno *= 5;
+                    }
+                  if (test3.dim[r].sm != test3.elem_len)
+                    {
+                      printf ("Memory stride fail: test3.dim[%d].sm = %ld, "
+                              "test3.elem_len = %ld must be equal.\n");
+                      errno *= 7;
                     }
                 }
               if (elem_len != test3.elem_len)
                 {
                   printf ("Element length fail: type_idx = %d., elem_len = "
-                          "%ld\n",
+                          "%ld must be equal.\n",
                           i, elem_len);
-                  errno *= 5;
+                  errno *= 11;
                 }
-              if (type[i] == CFI_type_double)
-                {
-                  size_t arr_len = 1;
-                  double val     = 0.;
-                  for (int r = 0; r < rank; r++)
-                    {
-                      arr_len *= test3.dim[r].extent;
-                    }
-                  for (size_t l; l < arr_len; l++)
-                    {
-                      val++;
-                      /* Use memcpy */
-                      memcpy ((char *)test3.base_addr + l * test3.elem_len,
-                              (void *)&val, test3.elem_len);
-                      // printf (" %d ",
-                      //         (char *)test3.base_addr + l * test3.elem_len);
-                      printf(" %f ", *(double*)((char *)test3.base_addr + l * test3.elem_len));
-                      // test3.base_addr[l] = (void*)val;
-                    }
-                  printf ("\n\n");
-                }
-              printf ("errno = %d\n", errno);
             }
         next_attribute3:;
+          printf ("errno = %ld\n\n", errno);
         }
     }
+
+  rank  = 1;
+  errno = 1;
+  CFI_CDESC_T (rank) test4;
+  base_type      = type[3] & CFI_type_mask;
+  base_type_size = (type[3] - base_type) >> CFI_type_kind_shift;
+  attribute      = CFI_attribute_allocatable;
+  ind = CFI_establish ((CFI_cdesc_t *)&test4, NULL, attribute, type[3],
+                       elem_len, rank, NULL);
+  ind = CFI_allocate ((CFI_cdesc_t *)&test4, NULL, NULL, base_type_size);
+  if (ind != CFI_INVALID_EXTENT)
+    {
+      errno *= 2;
+    }
+  printf ("errno = %ld\n\n", errno);
+
+  rank  = 1;
+  errno = 1;
+  CFI_CDESC_T (rank) test5;
+  base_type      = type[3] & CFI_type_mask;
+  base_type_size = (type[3] - base_type) >> CFI_type_kind_shift;
+  attribute      = CFI_attribute_pointer;
+  ind = CFI_establish ((CFI_cdesc_t *)&test5, &ind, attribute, type[3],
+                       elem_len, rank, extents);
+  ind = CFI_allocate ((CFI_cdesc_t *)&test5, NULL, NULL, base_type_size);
+  if (ind != CFI_ERROR_BASE_ADDR_NOT_NULL)
+    {
+      errno *= 2;
+    }
+  printf ("errno = %ld\n\n", errno);
+
+  // // This sets the value "val" at position "offset" for a CFI array "arr"
+  // with element size "arr.elem_len" described by CFI_cdesc_t.
+  // memcpy ((char *)arr.base_addr + offset * arr.elem_len,
+  //         (void *)& val, arr.elem_len);
+  // // This is the memory address of the l'th element of the array (C indices).
+  // char address = (char *)test3.base_addr + l * test3.elem_len;
+  // // This is the value of the l'th element of the array (C indices).
+  // my_type value = *(my_type*)((char *)test3.base_addr + l * test3.elem_len);
+
+  // if (type[i] == CFI_type_double)
+  //   {
+  //     size_t arr_len = 1;
+  //     double val     = 0.;
+  //     for (int r = 0; r < rank; r++)
+  //       {
+  //         arr_len *= test3.dim[r].extent;
+  //       }
+  //       printf("arr_len = %d\n", arr_len);
+  //     for (size_t l = 0; l < arr_len; l++)
+  //       {
+  //         val++;
+  //         /* Use memcpy */
+  //         memcpy ((char *)test3.base_addr + l * test3.elem_len,
+  //                 (void *)&val, test3.elem_len);
+  //         printf ("val = %d, addr = %u\n",
+  //                 (char *)test3.base_addr + l * test3.elem_len, (char
+  //                 *)test3.base_addr + l * test3.elem_len);
+  //         // printf(" %f ", *(double*)((char *)test3.base_addr + l *
+  //         test3.elem_len));
+  //         // test3.base_addr[l] = (void*)val;
+  //       }
+  //     printf ("\n\n");
+  //   }
 
   // if (errno == 1)
   //   {
