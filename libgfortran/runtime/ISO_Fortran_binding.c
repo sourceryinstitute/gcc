@@ -186,34 +186,13 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
       for (int i = 0; i < rank; i++)
         {
           dv->dim[i].extent = extents[i];
-        }
-    }
-
-  if (rank == 0)
-    {
-      if (attribute == CFI_attribute_pointer)
-        {
-          dv->dim[0].lower_bound = 0;
-        }
-    }
-  else if (rank > 0)
-    {
-      for (int i = 0; i <= rank; i++)
-        {
           if (attribute == CFI_attribute_pointer)
             {
               dv->dim[i].lower_bound = 0;
             }
         }
     }
-  if (attribute == CFI_attribute_pointer)
-    {
-      dv->dim[i - 1].lower_bound = 0;
-    }
-}
-}
-
-return CFI_SUCCESS;
+  return CFI_SUCCESS;
 }
 
 int CFI_setpointer (CFI_cdesc_t *result, CFI_cdesc_t *source,
@@ -617,8 +596,8 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
   CFI_index_t *lower;
   CFI_index_t *upper;
   CFI_index_t *stride;
-  lower = malloc (source->rank * sizeof (CFI_index_t));
-  upper = malloc (source->rank * sizeof (CFI_index_t));
+  lower  = malloc (source->rank * sizeof (CFI_index_t));
+  upper  = malloc (source->rank * sizeof (CFI_index_t));
   stride = malloc (source->rank * sizeof (CFI_index_t));
 
   // Lower bounds.
@@ -918,7 +897,8 @@ void main ()
   // printf("%ld\n", *address);
   // printf("%d, %d, %d\n", sizeof(subscripts), sizeof(CFI_index_t),
   // sizeof(test));
-  printf("type size in bytes = %d\n", (CFI_type_int128_t - (CFI_type_int128_t &
+  printf("type size in bytes = %d\n", (CFI_type_int128_t - (CFI_type_int128_t
+&
 CFI_type_mask)) >> CFI_type_kind_shift);
   printf("base type = %d\n", CFI_type_int128_t & CFI_type_mask);
 
