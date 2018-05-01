@@ -131,7 +131,7 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
       return CFI_INVALID_DESCRIPTOR;
     }
 
-  /* If base address is not a NULL, the established C Descriptor is for a
+  /* If base address is not NULL, the established C Descriptor is for a
    * nonallocatable entity. */
   if (attribute == CFI_attribute_allocatable && base_addr != NULL)
     {
@@ -172,6 +172,8 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
   dv->attribute = attribute;
   dv->type      = type;
 
+  /* Extents must not be NULL if rank is greater than zero and base_addr is not
+   * NULL */
   if (rank > 0 && base_addr != NULL)
     {
       if (extents == NULL)
@@ -189,6 +191,8 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
         }
     }
 
+  /* If the C Descriptor is for a pointer then the lower bounds of every
+   * dimension are set to zero. */
   if (attribute == CFI_attribute_pointer)
     {
       for (int i = 0; i < rank; i++)
@@ -330,10 +334,10 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
         {
           fprintf (
               stderr, "ISO_Fortran_binding.c: CFI_address: subscripts[%d] = "
-                      "%d, is out of bounds. It must not be greater than "
-                      "dv->dim[%d].extent - dv->dim[%d].lower_bound = %d - "
-                      "%d "
-                      "= %d. (Error No. %d).\n",
+                      "%ld, is out of bounds. It must not be greater than "
+                      "dv->dim[%d].extent - dv->dim[%d].lower_bound = %ld - "
+                      "%ld "
+                      "= %ld. (Error No. %d).\n",
               0, subscripts[0], 0, 0, dv->dim[0].extent, dv->dim[0].lower_bound,
               dv->dim[0].extent - dv->dim[0].lower_bound,
               CFI_ERROR_OUT_OF_BOUNDS);
@@ -348,11 +352,11 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
             {
               fprintf (stderr, "ISO_Fortran_binding.c: "
                                "CFI_address: subscripts[%d] = "
-                               "%d, is out of bounds. It must "
+                               "%ld, is out of bounds. It must "
                                "not be greater than "
                                "dv->dim[%d].extent - "
-                               "dv->dim[%d].lower_bound = %d - "
-                               "%d = %d. (Error No. %d).\n",
+                               "dv->dim[%d].lower_bound = %ld - "
+                               "%ld = %ld. (Error No. %d).\n",
                        i, subscripts[i], i, i, dv->dim[i].extent,
                        dv->dim[i].lower_bound,
                        dv->dim[i].extent - dv->dim[i].lower_bound,
@@ -413,7 +417,7 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
                   const CFI_index_t upper_bounds[], size_t elem_len)
 {
 
-  // C Descriptor should be allocated.
+  /* C Descriptor should be allocated. */
   if (dv == NULL)
     {
       fprintf (stderr,
@@ -423,7 +427,7 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
       return CFI_INVALID_DESCRIPTOR;
     }
 
-  // Base address of C Descriptor should be NULL.
+  /* Base address of C Descriptor should be NULL. */
   if (dv->base_addr != NULL)
     {
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_allocate: Base address of C "
@@ -432,9 +436,8 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
       return CFI_ERROR_BASE_ADDR_NOT_NULL;
     }
 
-  // The C Descriptor must be for an allocatable or pointer object.
-  if (dv->attribute != CFI_attribute_pointer ||
-      dv->attribute != CFI_attribute_allocatable)
+  /* The C Descriptor must be for an allocatable or pointer object. */
+  if (dv->attribute == CFI_attribute_other)
     {
       fprintf (stderr,
                "ISO_Fortran_binding.c: CFI_allocate: The object of the C "
@@ -444,19 +447,18 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
       return CFI_INVALID_ATTRIBUTE;
     }
 
-  // If the type is a character, the descriptor's elemenent length is replaced
-  // by the elem_len argument.
+  /* If the type is a character, the descriptor's elemenent length is replaced
+   * by the elem_len argument. */
   if (dv->type == CFI_type_char || dv->type == CFI_type_ucs4_char ||
-      dv->type != CFI_type_signed_char)
+      dv->type == CFI_type_signed_char)
     {
       dv->elem_len = elem_len;
     }
 
   size_t arr_len = 1;
 
-  // If rank is greater than 0, lower_bounds and upper_bounds are used.
-  // They're
-  // ignored otherwhise.
+  /* If rank is greater than 0, lower_bounds and upper_bounds are used. They're
+   * ignored otherwhise. */
   if (dv->rank > 0)
     {
       if (lower_bounds == NULL || upper_bounds == NULL)
@@ -470,27 +472,14 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
                    dv->rank, CFI_INVALID_EXTENT);
           return CFI_INVALID_EXTENT;
         }
-      for (int i = 0; dv->rank; i++)
+      for (int i = 0; i < dv->rank; i++)
         {
-          if (dv->dim[i].extent != upper_bounds[i] - lower_bounds[i] + 1)
-            {
-              fprintf (
-                  stderr, "ISO_Fortran_binding.c: CFI_allocate: The lower and "
-                          "upper bounds must be consistent with the extent of "
-                          "the dimension described, dv->dim[%d].extent = %d, "
-                          "must be equal to upper_bounds[%d] - "
-                          "lower_bounds[%d] + 1 = %d - %d + 1 = %d. "
-                          "(Error No. %d).\n",
-                  i, dv->dim[i].extent, i, i, upper_bounds[i], lower_bounds[i],
-                  upper_bounds[i] - lower_bounds[i] + 1, CFI_INVALID_EXTENT);
-              return CFI_INVALID_EXTENT;
-            }
           dv->dim[i].lower_bound = lower_bounds[i];
+          dv->dim[i].extent      = upper_bounds[i] - dv->dim[i].lower_bound + 1;
           dv->dim[i].sm          = dv->elem_len;
           arr_len *= dv->dim[i].extent;
         }
     }
-
   dv->base_addr = malloc (arr_len * dv->elem_len);
 
   return CFI_SUCCESS;

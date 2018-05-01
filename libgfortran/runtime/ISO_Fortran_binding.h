@@ -51,6 +51,7 @@ extern "C" {
 
 /* Error status codes.  */
 
+#define CFI_FAILURE -1
 #define CFI_SUCCESS 0
 #define CFI_ERROR_BASE_ADDR_NULL 1
 #define CFI_ERROR_BASE_ADDR_NOT_NULL 2
