@@ -390,6 +390,7 @@ int CFI_is_contiguous (const CFI_cdesc_t *dv)
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_is_contiguous: NULL base "
                        "address of C Descriptor. (Error No. %d).\n",
                CFI_ERROR_BASE_ADDR_NULL);
+      return CFI_ERROR_BASE_ADDR_NULL;
     }
 
   if (dv->rank == 0)
@@ -397,17 +398,18 @@ int CFI_is_contiguous (const CFI_cdesc_t *dv)
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_is_contiguous: C Descriptor "
                        "must describe an array (rank > 0). (Error No. %d).\n",
                CFI_INVALID_RANK);
+      return CFI_INVALID_RANK;
     }
 
   // There is no guarantee other arrays are contiguous.
   if (dv->attribute == CFI_attribute_pointer)
     {
-      return 0;
+      return CFI_FAILURE;
     }
   // Allocatable, assume shape and assumed size arrays are always contiguous.
   else
     {
-      return 1;
+      return CFI_SUCCESS;
     }
 }
 

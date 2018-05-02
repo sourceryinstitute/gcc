@@ -434,6 +434,7 @@ int main (void)
     }
 
   printf ("Test CFI_is_contiguous.\n\n");
+  int tmp_ind;
   base_type      = type[3] & CFI_type_mask;
   base_type_size = (type[3] - base_type) >> CFI_type_kind_shift;
   for (int i = 1; i <= 3; i++)
@@ -467,22 +468,24 @@ int main (void)
           CFI_CDESC_T (rank) test7;
           ind = CFI_establish ((CFI_cdesc_t *)&test7, NULL, attribute, type[3],
                                elem_len, rank, extents);
-          ind = CFI_allocate ((CFI_cdesc_t *)&test7, lower, upper,
-                              base_type_size);
+          tmp_ind = CFI_allocate ((CFI_cdesc_t *)&test7, lower, upper,
+                                  base_type_size);
           ind = CFI_is_contiguous ((CFI_cdesc_t *)&test7);
-          printf ("attribute = %d\nrank = %d\n\n", attribute, rank);
-          // if (i == CFI_attribute_pointer && ind == 0)
-          //   {
-          //     printf ("errno = %ld\n\n", errno);
-          //   }
-          // else if (ind == CFI_INVALID_RANK)
-          //   {
-          //     printf ("errno = %ld\n\n", errno);
-          //   }
-          // else
-          //   {
-          //     printf ("CFI_is_contiguous failed.\nerrno = %ld\n\n", errno);
-          //   }
+          printf ("attribute = %d\nrank = %d\n", attribute, rank);
+          // printf("%d\n",ind);
+          if (ind != CFI_INVALID_RANK && rank == 0 &&
+              tmp_ind != CFI_INVALID_ATTRIBUTE)
+            {
+              printf ("CFI_is_contiguous rank failure %d.\n", tmp_ind);
+              errno *= 2;
+            }
+          else if (ind == CFI_ERROR_BASE_ADDR_NULL && test7.base_addr != NULL &&
+                   tmp_ind != CFI_SUCCESS)
+            {
+              printf ("CFI_is_contiguous base addres failure.\n");
+              errno *= 3;
+            }
+          printf ("errno = %d\n\n", errno);
         }
     }
 
