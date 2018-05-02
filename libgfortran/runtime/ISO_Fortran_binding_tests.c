@@ -364,6 +364,7 @@ int main (void)
         }
     }
 
+  printf ("Test CFI_allocate: dv.base_addr == NULL.\n\n");
   rank  = 1;
   errno = 1;
   CFI_CDESC_T (rank) test4;
@@ -379,6 +380,7 @@ int main (void)
     }
   printf ("errno = %ld\n\n", errno);
 
+  printf ("Test CFI_allocate: lower and upper == NULL.\n\n");
   rank  = 1;
   errno = 1;
   CFI_CDESC_T (rank) test5;
@@ -393,6 +395,96 @@ int main (void)
       errno *= 2;
     }
   printf ("errno = %ld\n\n", errno);
+
+  /* Test CFI_deallocate */
+  printf ("Test CFI_deallocate.\n\n");
+  rank           = 1;
+  errno          = 1;
+  base_type      = type[3] & CFI_type_mask;
+  base_type_size = (type[3] - base_type) >> CFI_type_kind_shift;
+  for (int i = 1; i <= 3; i++)
+    {
+      attribute = i;
+      if (extents != NULL)
+        {
+          free (extents);
+        }
+      if (lower != NULL)
+        {
+          free (lower);
+        }
+      if (upper != NULL)
+        {
+          free (upper);
+        }
+      extents = malloc (rank * sizeof (CFI_index_t));
+      lower   = malloc (rank * sizeof (CFI_index_t));
+      upper   = malloc (rank * sizeof (CFI_index_t));
+      CFI_CDESC_T (rank) test6;
+      ind = CFI_establish ((CFI_cdesc_t *)&test6, NULL, attribute, type[i],
+                           elem_len, rank, extents);
+      ind = CFI_allocate ((CFI_cdesc_t *)&test6, lower, upper, base_type_size);
+      ind = CFI_deallocate ((CFI_cdesc_t *)&test6);
+      if (ind != CFI_INVALID_ATTRIBUTE && test6.base_addr != NULL)
+        {
+          errno *= 2;
+          printf ("Deallocation failed.\n");
+        }
+      printf ("attribute = %d\nerrno = %ld\n\n", test6.attribute, errno);
+    }
+
+  printf ("Test CFI_is_contiguous.\n\n");
+  base_type      = type[3] & CFI_type_mask;
+  base_type_size = (type[3] - base_type) >> CFI_type_kind_shift;
+  for (int i = 1; i <= 3; i++)
+    {
+      attribute = i;
+      for (int j = 0; j <= 1; j++)
+        {
+          errno = 1;
+          rank  = j;
+          if (extents != NULL)
+            {
+              free (extents);
+            }
+          if (lower != NULL)
+            {
+              free (lower);
+            }
+          if (upper != NULL)
+            {
+              free (upper);
+            }
+          extents = malloc (rank * sizeof (CFI_index_t));
+          lower   = malloc (rank * sizeof (CFI_index_t));
+          upper   = malloc (rank * sizeof (CFI_index_t));
+          for (int r = 0; r < rank; r++)
+            {
+              extents[r] = 2;
+              lower[r]   = r;
+              upper[r]   = lower[r] + extents[r];
+            }
+          CFI_CDESC_T (rank) test7;
+          ind = CFI_establish ((CFI_cdesc_t *)&test7, NULL, attribute, type[3],
+                               elem_len, rank, extents);
+          ind = CFI_allocate ((CFI_cdesc_t *)&test7, lower, upper,
+                              base_type_size);
+          ind = CFI_is_contiguous ((CFI_cdesc_t *)&test7);
+          printf ("attribute = %d\nrank = %d\n\n", attribute, rank);
+          // if (i == CFI_attribute_pointer && ind == 0)
+          //   {
+          //     printf ("errno = %ld\n\n", errno);
+          //   }
+          // else if (ind == CFI_INVALID_RANK)
+          //   {
+          //     printf ("errno = %ld\n\n", errno);
+          //   }
+          // else
+          //   {
+          //     printf ("CFI_is_contiguous failed.\nerrno = %ld\n\n", errno);
+          //   }
+        }
+    }
 
   // // This sets the value "val" at position "offset" for a CFI array "arr"
   // with element size "arr.elem_len" described by CFI_cdesc_t.

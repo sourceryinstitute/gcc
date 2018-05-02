@@ -390,7 +390,6 @@ int CFI_is_contiguous (const CFI_cdesc_t *dv)
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_is_contiguous: NULL base "
                        "address of C Descriptor. (Error No. %d).\n",
                CFI_ERROR_BASE_ADDR_NULL);
-      exit (EXIT_FAILURE);
     }
 
   if (dv->rank == 0)
@@ -398,7 +397,6 @@ int CFI_is_contiguous (const CFI_cdesc_t *dv)
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_is_contiguous: C Descriptor "
                        "must describe an array (rank > 0). (Error No. %d).\n",
                CFI_INVALID_RANK);
-      exit (EXIT_FAILURE);
     }
 
   // There is no guarantee other arrays are contiguous.
@@ -488,7 +486,7 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
 int CFI_deallocate (CFI_cdesc_t *dv)
 {
 
-  // C Descriptor should be allocated.
+  /* C Descriptor should be allocated. */
   if (dv == NULL)
     {
       fprintf (stderr,
@@ -498,7 +496,7 @@ int CFI_deallocate (CFI_cdesc_t *dv)
       return CFI_INVALID_DESCRIPTOR;
     }
 
-  // C Descriptor must be for an allocatable or pointer variable.
+  /* C Descriptor must be for an allocatable or pointer variable. */
   if (dv->attribute == CFI_attribute_other)
     {
       fprintf (stderr,
