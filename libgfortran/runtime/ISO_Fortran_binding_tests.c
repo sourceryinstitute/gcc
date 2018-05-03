@@ -58,7 +58,7 @@ int main (void)
               ind = CFI_establish ((CFI_cdesc_t *)&test1, NULL, attribute,
                                    type[i], elem_len, rank, NULL);
               printf ("attribute = %d\ntype = %d\nbase_type = %ld\nrank = "
-                      "%d\nelem_len = %d\n",
+                      "%d\nelem_len = %ld\n",
                       attribute, type[i], base_type, rank, elem_len);
               if (ind != CFI_SUCCESS)
                 {
@@ -153,7 +153,7 @@ int main (void)
               ind = CFI_establish ((CFI_cdesc_t *)&test2, &ind, attribute,
                                    type[i], elem_len, rank, extents);
               printf ("attribute = %d\ntype = %d\nbase_type = %ld\nrank = "
-                      "%d\nelem_len = %d\n",
+                      "%d\nelem_len = %ld\n",
                       attribute, type[i], base_type, rank, elem_len);
               if (ind != CFI_SUCCESS)
                 {
@@ -347,7 +347,8 @@ int main (void)
                   if (test3.dim[r].sm != test3.elem_len)
                     {
                       printf ("Memory stride fail: test3.dim[%d].sm = %ld, "
-                              "test3.elem_len = %ld must be equal.\n");
+                              "test3.elem_len = %ld must be equal.\n",
+                              r, test3.dim[r].sm, test3.elem_len);
                       errno *= 7;
                     }
                 }
@@ -485,7 +486,144 @@ int main (void)
               printf ("CFI_is_contiguous base addres failure.\n");
               errno *= 3;
             }
-          printf ("errno = %d\n\n", errno);
+          printf ("errno = %ld\n\n", errno);
+        }
+    }
+
+  /* Fresh descriptor, base address is not NULL */
+  printf ("Test CFI_section: source.base_addr != NULL.\n\n");
+  /* Loop through type. */
+  for (int i = 0; i < 10; i++)
+    {
+      elem_len = 0;
+      if (type[i] == CFI_type_struct)
+        {
+          base_type      = type[i];
+          base_type_size = 69;
+        }
+      else if (type[i] == CFI_type_other)
+        {
+          base_type      = type[i];
+          base_type_size = 666;
+        }
+      else if (type[i] == CFI_type_char || type[i] == CFI_type_ucs4_char ||
+               type[i] == CFI_type_signed_char)
+        {
+          base_type      = type[i] & CFI_type_mask;
+          base_type_size = 3;
+        }
+      else
+        {
+          base_type      = type[i] & CFI_type_mask;
+          base_type_size = (type[i] - base_type) >> CFI_type_kind_shift;
+        }
+
+      elem_len = base_type_size;
+      if (base_type_size == 10)
+        {
+          elem_len = 64;
+        }
+      if (base_type == CFI_type_Complex)
+        {
+          elem_len *= 2;
+        }
+      /* Loop through attribute. */
+      for (int j = 1; j <= 3; j++)
+        {
+          attribute = j;
+          /* Loop through rank. */
+          for (int k = 1; k <= CFI_MAX_RANK; k++)
+            {
+              errno = 1;
+              rank  = k;
+              if (extents != NULL)
+                {
+                  free (extents);
+                }
+              if (lower != NULL)
+                {
+                  free (lower);
+                }
+              if (upper != NULL)
+                {
+                  free (upper);
+                }
+              extents = malloc (rank * sizeof (CFI_index_t));
+              lower   = malloc (rank * sizeof (CFI_index_t));
+              upper   = malloc (rank * sizeof (CFI_index_t));
+              for (int r = 0; r < rank; r++)
+                {
+                  extents[r] = 2;
+                  lower[r]   = r;
+                  upper[r]   = lower[r] + extents[r];
+                }
+              CFI_CDESC_T (rank) source;
+              CFI_CDESC_T (rank - 1) result;
+              /* We do this because C sometimes doesn't make the structures with
+               * a null base_addr which leads to weird behaviour inside
+               * CFI_establish.
+               */
+              if (source.base_addr != NULL)
+                {
+                  source.base_addr = NULL;
+                  free (source.base_addr);
+                }
+              if (result.base_addr != NULL)
+                {
+                  result.base_addr = NULL;
+                  free (result.base_addr);
+                }
+              ind = CFI_establish ((CFI_cdesc_t *)&source, NULL, attribute,
+                                   type[i], elem_len, rank, extents);
+              ind = CFI_allocate ((CFI_cdesc_t *)&source, lower, upper,
+                                  base_type_size);
+              // ind = CFI_section ((CFI_cdesc_t *)&result, (CFI_cdesc_t
+              // *)&test8);
+              // printf ("type = %ld\nelem_len = %ld\n", base_type,
+              //         test3.elem_len);
+              // if (ind != CFI_SUCCESS)
+              //   {
+              //     errno *= 2;
+              //     goto next_attribute3;
+              //   }
+              // for (int r = 0; r < rank; r++)
+              //   {
+              //     if (lower[r] != test3.dim[r].lower_bound)
+              //       {
+              //         printf (
+              //             "Dimension lower bound fail: lower[%d] = %ld, "
+              //             "test3.dim[%d].lower_bound = %ld must be equal.\n",
+              //             r, lower[r], r, test3.dim[r].lower_bound);
+              //         errno *= 3;
+              //       }
+              //     if (upper[r] - test3.dim[r].lower_bound + 1 !=
+              //         test3.dim[r].extent)
+              //       {
+              //         printf ("Extent fail: upper[%d] - "
+              //                 "test3.dim[%d].lower_bound + 1 = %ld, "
+              //                 "test3.dim[%d].extent = %ld must be equal.\n",
+              //                 r, r, upper[r] - test3.dim[r].lower_bound + 1,
+              //                 r,
+              //                 test3.dim[r].lower_bound);
+              //         errno *= 5;
+              //       }
+              //     if (test3.dim[r].sm != test3.elem_len)
+              //       {
+              //         printf ("Memory stride fail: test3.dim[%d].sm = %ld, "
+              //                 "test3.elem_len = %ld must be equal.\n");
+              //         errno *= 7;
+              //       }
+              //   }
+              // if (elem_len != test3.elem_len)
+              //   {
+              //     printf ("Element length fail: type_idx = %d., elem_len = "
+              //             "%ld must be equal.\n",
+              //             i, elem_len);
+              //     errno *= 11;
+              //   }
+            }
+          // next_attribute3:;
+          printf ("errno = %ld\n\n", errno);
         }
     }
 

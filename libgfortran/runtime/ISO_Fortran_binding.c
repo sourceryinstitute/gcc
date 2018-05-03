@@ -109,7 +109,6 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                    CFI_type_t type, size_t elem_len, CFI_rank_t rank,
                    const CFI_index_t extents[])
 {
-
   /* C Descriptor should be allocated. */
   if (dv == NULL)
     {
@@ -118,7 +117,6 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                CFI_INVALID_DESCRIPTOR);
       return CFI_INVALID_DESCRIPTOR;
     }
-
   /* C Descriptor must not be an allocated allocatable. */
   if (dv->attribute == CFI_attribute_allocatable && dv->base_addr != NULL)
     {
@@ -130,7 +128,6 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                CFI_attribute_allocatable, CFI_INVALID_DESCRIPTOR);
       return CFI_INVALID_DESCRIPTOR;
     }
-
   /* If base address is not NULL, the established C Descriptor is for a
    * nonallocatable entity. */
   if (attribute == CFI_attribute_allocatable && base_addr != NULL)
@@ -142,8 +139,8 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
                CFI_attribute_allocatable, CFI_INVALID_ATTRIBUTE);
       return CFI_INVALID_ATTRIBUTE;
     }
-
   dv->base_addr = base_addr;
+  /* elem_len is only used if the item is not a type with a kind parameter. */
   if (type == CFI_type_struct || type == CFI_type_other)
     {
       dv->elem_len = elem_len;
@@ -171,7 +168,6 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
   dv->rank      = rank;
   dv->attribute = attribute;
   dv->type      = type;
-
   /* Extents must not be NULL if rank is greater than zero and base_addr is not
    * NULL */
   if (rank > 0 && base_addr != NULL)
@@ -190,7 +186,6 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
           dv->dim[i].extent = extents[i];
         }
     }
-
   /* If the C Descriptor is for a pointer then the lower bounds of every
    * dimension are set to zero. */
   if (attribute == CFI_attribute_pointer)
@@ -200,7 +195,6 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
           dv->dim[i].lower_bound = 0;
         }
     }
-
   return CFI_SUCCESS;
 }
 
@@ -385,6 +379,7 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
 
 int CFI_is_contiguous (const CFI_cdesc_t *dv)
 {
+  /* Base address must not be NULL. */
   if (dv->base_addr == NULL)
     {
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_is_contiguous: NULL base "
@@ -392,7 +387,7 @@ int CFI_is_contiguous (const CFI_cdesc_t *dv)
                CFI_ERROR_BASE_ADDR_NULL);
       return CFI_ERROR_BASE_ADDR_NULL;
     }
-
+  /* Must be an array. */
   if (dv->rank == 0)
     {
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_is_contiguous: C Descriptor "
@@ -400,13 +395,12 @@ int CFI_is_contiguous (const CFI_cdesc_t *dv)
                CFI_INVALID_RANK);
       return CFI_INVALID_RANK;
     }
-
-  // There is no guarantee other arrays are contiguous.
+  /* There is no guarantee other arrays are contiguous. */
   if (dv->attribute == CFI_attribute_pointer)
     {
       return CFI_FAILURE;
     }
-  // Allocatable, assume shape and assumed size arrays are always contiguous.
+  /* Allocatable, assume shape and assumed size arrays are always contiguous. */
   else
     {
       return CFI_SUCCESS;
@@ -416,7 +410,6 @@ int CFI_is_contiguous (const CFI_cdesc_t *dv)
 int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
                   const CFI_index_t upper_bounds[], size_t elem_len)
 {
-
   /* C Descriptor should be allocated. */
   if (dv == NULL)
     {
@@ -426,7 +419,6 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
                CFI_INVALID_DESCRIPTOR);
       return CFI_INVALID_DESCRIPTOR;
     }
-
   /* Base address of C Descriptor should be NULL. */
   if (dv->base_addr != NULL)
     {
@@ -435,7 +427,6 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
                CFI_ERROR_BASE_ADDR_NOT_NULL);
       return CFI_ERROR_BASE_ADDR_NOT_NULL;
     }
-
   /* The C Descriptor must be for an allocatable or pointer object. */
   if (dv->attribute == CFI_attribute_other)
     {
@@ -446,7 +437,6 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
                CFI_INVALID_ATTRIBUTE);
       return CFI_INVALID_ATTRIBUTE;
     }
-
   /* If the type is a character, the descriptor's elemenent length is replaced
    * by the elem_len argument. */
   if (dv->type == CFI_type_char || dv->type == CFI_type_ucs4_char ||
@@ -454,9 +444,7 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
     {
       dv->elem_len = elem_len;
     }
-
   size_t arr_len = 1;
-
   /* If rank is greater than 0, lower_bounds and upper_bounds are used. They're
    * ignored otherwhise. */
   if (dv->rank > 0)
@@ -487,7 +475,6 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
 
 int CFI_deallocate (CFI_cdesc_t *dv)
 {
-
   /* C Descriptor should be allocated. */
   if (dv == NULL)
     {
@@ -497,7 +484,6 @@ int CFI_deallocate (CFI_cdesc_t *dv)
                CFI_INVALID_DESCRIPTOR);
       return CFI_INVALID_DESCRIPTOR;
     }
-
   /* C Descriptor must be for an allocatable or pointer variable. */
   if (dv->attribute == CFI_attribute_other)
     {
@@ -508,7 +494,6 @@ int CFI_deallocate (CFI_cdesc_t *dv)
                CFI_INVALID_ATTRIBUTE);
       return CFI_INVALID_ATTRIBUTE;
     }
-
   free (dv->base_addr);
   return CFI_SUCCESS;
 }
@@ -517,8 +502,34 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
                  const CFI_index_t lower_bounds[],
                  const CFI_index_t upper_bounds[], const CFI_index_t strides[])
 {
-
-  // Result must not be an allocatable array.
+  /* C Descriptors should be allocated. */
+  if (source == NULL)
+    {
+      fprintf (
+          stderr,
+          "ISO_Fortran_binding.c: CFI_section: NULL C Descriptor for source. "
+          "(Error No. %d).\n",
+          CFI_INVALID_DESCRIPTOR);
+      return CFI_INVALID_DESCRIPTOR;
+    }
+  if (result == NULL)
+    {
+      fprintf (
+          stderr,
+          "ISO_Fortran_binding.c: CFI_section: NULL C Descriptor for result. "
+          "(Error No. %d).\n",
+          CFI_INVALID_DESCRIPTOR);
+      return CFI_INVALID_DESCRIPTOR;
+    }
+  /* Base address of source must not be NULL. */
+  if (source->base_addr == NULL)
+    {
+      fprintf (stderr, "ISO_Fortran_binding.c: CFI_section: Base address of "
+                       "source must be allocated. (Error No. %d).\n",
+               CFI_ERROR_BASE_ADDR_NULL);
+      return CFI_ERROR_BASE_ADDR_NULL;
+    }
+  /* Result must not be an allocatable array. */
   if (result->attribute == CFI_attribute_allocatable)
     {
       fprintf (stderr,
@@ -528,18 +539,8 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
                CFI_INVALID_ATTRIBUTE);
       return CFI_INVALID_ATTRIBUTE;
     }
-
-  // Base address of source must not be NULL.
-  if (source->base_addr == NULL)
-    {
-      fprintf (stderr, "ISO_Fortran_binding.c: CFI_section: Base address of "
-                       "source must be allocated. (Error No. %d).\n",
-               CFI_ERROR_BASE_ADDR_NULL);
-      return CFI_ERROR_BASE_ADDR_NULL;
-    }
-
-  // Source must be some form of array (nonallocatable nonpointer array,
-  // allocated allocatable array or an associated pointer array).
+  /* Source must be some form of array (nonallocatable nonpointer array,
+   * allocated allocatable array or an associated pointer array). */
   if (source->rank <= 0)
     {
       fprintf (stderr,
@@ -548,13 +549,13 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
                CFI_INVALID_RANK);
       return CFI_INVALID_RANK;
     }
-
+  /* Element lengths must be the same between source and result. */
   if (result->elem_len != source->elem_len)
     {
       fprintf (stderr,
                "ISO_Fortran_binding.c: CFI_section: The element lengths "
-               "of source, source->elem_len = %d, and result, "
-               "result->elem_len = %d, must be the same. (Error No. "
+               "of source, source->elem_len = %ld, and result, "
+               "result->elem_len = %ld, must be the same. (Error No. "
                "%d).\n",
                source->elem_len, result->elem_len, CFI_INVALID_ELEM_LEN);
       return CFI_INVALID_ELEM_LEN;
@@ -617,8 +618,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
         {
           fprintf (stderr,
                    "ISO_Fortran_binding.c: CFI_section: Source must not "
-                   "be "
-                   "an assumed size array if upper_bounds is NULL. (Error "
+                   "be an assumed size array if upper_bounds is NULL. (Error "
                    "No. %d).\n",
                    CFI_INVALID_EXTENT);
           return CFI_INVALID_EXTENT;
@@ -655,8 +655,8 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
               fprintf (stderr, "ISO_Fortran_binding.c: "
                                "CFI_section: If strides[%d] = 0, "
                                "then the lower bounds, "
-                               "lower_bounds[%d] = %d, and "
-                               "upper_bounds[%d] = %d, must be "
+                               "lower_bounds[%d] = %ld, and "
+                               "upper_bounds[%d] = %ld, must be "
                                "equal. (Error No. %d).\n",
                        i, i, lower_bounds[i], i, upper_bounds[i],
                        CFI_ERROR_OUT_OF_BOUNDS);
@@ -679,8 +679,8 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
                   fprintf (stderr, "ISO_Fortran_binding.c: "
                                    "CFI_section: If stride[%d] = "
                                    "0, or (upper[%d] - lower[%d] + "
-                                   "stride[%d])/stride[%d] = (%d - "
-                                   "%d + %d)/%d = %d. "
+                                   "stride[%d])/stride[%d] = (%ld - "
+                                   "%ld + %ld)/%ld = %ld. "
                                    "(Error No. %d).\nIf upper_bounds "
                                    "is not NULL, then "
                                    "upper[i] = upper_bounds[i] for "
@@ -716,8 +716,8 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
                 {
                   fprintf (stderr, "ISO_Fortran_binding.c: CFI_section: If "
                                    "stride[%d] = 0, or (upper[%d] - lower[%d] "
-                                   "+ stride[%d])/stride[%d] = (%d - %d + "
-                                   "%d)/%d = %d. (Error No. %d).\nIf "
+                                   "+ stride[%d])/stride[%d] = (%ld - %ld + "
+                                   "%ld)/%ld = %ld. (Error No. %d).\nIf "
                                    "upper_bounds is not NULL, then upper[i] = "
                                    "upper_bounds[i] for all i, otherwhise "
                                    "upper[i] is the upper bound of "
@@ -756,7 +756,6 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
 int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
                      size_t displacement, size_t elem_len)
 {
-
   if (result->attribute == CFI_attribute_allocatable)
     {
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_select_part: Result must "
@@ -792,9 +791,9 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
       if (elem_len != base_type_size)
         {
           fprintf (stderr, "ISO_Fortran_binding.c: "
-                           "CFI_select_part: Element length, elem_len = %d, "
+                           "CFI_select_part: Element length, elem_len = %ld, "
                            "must be equal to the size in bytes of a Fortran "
-                           "character, base_type_size = %d. (Error "
+                           "character, base_type_size = %ld. (Error "
                            "No. %d).\n",
                    elem_len, base_type_size, CFI_INVALID_ELEM_LEN);
           return CFI_INVALID_ELEM_LEN;
@@ -811,9 +810,9 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
       if (base_type_size == 1 && elem_len != base_type_size)
         {
           fprintf (stderr, "ISO_Fortran_binding.c: "
-                           "CFI_select_part: Element length, elem_len = %d, "
+                           "CFI_select_part: Element length, elem_len = %ld, "
                            "must be equal to the size in bytes of a Fortran "
-                           "character, base_type_size = %d. (Error "
+                           "character, base_type_size = %ld. (Error "
                            "No. %d).\n",
                    elem_len, base_type_size, CFI_INVALID_ELEM_LEN);
           return CFI_INVALID_ELEM_LEN;
@@ -828,9 +827,10 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
   /* Check displacement */
   if (displacement < 0 || displacement > source->elem_len - 1)
     {
-      fprintf (stderr, "ISO_Fortran_binding.c: CFI_select_part: Displacement "
-                       "must be within the bounds of source, 0 <= displacement "
-                       "(=%d) <= source->elem_len - 1 (=%d). (Error No. %d).\n",
+      fprintf (stderr,
+               "ISO_Fortran_binding.c: CFI_select_part: Displacement "
+               "must be within the bounds of source, 0 <= displacement "
+               "(= %ld) <= source->elem_len - 1 (= %ld). (Error No. %d).\n",
                displacement, source->elem_len - 1, CFI_ERROR_OUT_OF_BOUNDS);
       return CFI_ERROR_OUT_OF_BOUNDS;
     }
@@ -840,8 +840,8 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_select_part: Displacement "
                        "plus the element length of the result must be less "
                        "than or equal to the element length of the source, "
-                       "displacement + result->elem_len (=%d+%d=%d) <= "
-                       "source->elem_len (=%d). This ensures consistency in "
+                       "displacement + result->elem_len (= %ld + %ld = %ld) <= "
+                       "source->elem_len (= %ld). This ensures consistency in "
                        "picking part of the source (Error No. %d).\n",
                displacement, source->elem_len, displacement + source->elem_len,
                source->elem_len, CFI_ERROR_OUT_OF_BOUNDS);
