@@ -490,13 +490,100 @@ int main (void)
         }
     }
 
+  /* Fresh descriptor, no NULL variables. */
+  printf ("Test CFI_section: no NULL variables same rank section.\n\n");
   CFI_index_t *strides = NULL;
+  // rank                 = 1;
+  // base_type            = type[3] & CFI_type_mask;
+  // base_type_size       = (type[3] - base_type) >> CFI_type_kind_shift;
+  // elem_len             = base_type_size;
+  // errno                = 1;
+  // CFI_CDESC_T (rank) source;
+  // CFI_CDESC_T (rank) section;
+  // if (extents != NULL)
+  //   {
+  //     free (extents);
+  //   }
+  // if (lower != NULL)
+  //   {
+  //     free (lower);
+  //   }
+  // if (upper != NULL)
+  //   {
+  //     free (upper);
+  //   }
+  // if (strides != NULL)
+  //   {
+  //     free (strides);
+  //   }
+  // extents = malloc (rank * sizeof (CFI_index_t));
+  // lower   = malloc (rank * sizeof (CFI_index_t));
+  // upper   = malloc (rank * sizeof (CFI_index_t));
+  // for (int r = 0; r < rank; r++)
+  //   {
+  //     extents[r] = r * 3 + 17;
+  //     lower[r]   = 1;
+  //     upper[r]   = lower[r] + extents[r];
+  //   }
+  // ind = CFI_establish ((CFI_cdesc_t *)&source, NULL,
+  // CFI_attribute_allocatable,
+  //                      type[3], elem_len, rank, extents);
+  // ind = CFI_allocate ((CFI_cdesc_t *)&source, lower, upper, base_type_size);
+  // if (lower != NULL)
+  //   {
+  //     free (lower);
+  //   }
+  // if (strides != NULL)
+  //   {
+  //     free (strides);
+  //   }
+  // lower      = malloc (rank * sizeof (CFI_index_t));
+  // strides    = malloc (rank * sizeof (CFI_index_t));
+  // lower[0]   = 2;
+  // strides[0] = 5;
+  // ind = CFI_establish ((CFI_cdesc_t *)&section, NULL, CFI_attribute_other,
+  //                      type[3], 0, 1, NULL);
+  // ind = CFI_section ((CFI_cdesc_t *)&section, (CFI_cdesc_t *)&source, lower,
+  //                    NULL, strides);
+  // for (int i = 0; i < rank; i++)
+  //   {
+  //     if (section.dim[i].lower_bound != lower[i])
+  //       {
+  //         printf ("Lower bound error.\n");
+  //         errno *= 2;
+  //       }
+  //     if (section.dim[i].extent != upper[i] - lower[i] + 1)
+  //       {
+  //         printf ("Extent error.\n");
+  //         errno *= 3;
+  //       }
+  //     if (section.dim[i].sm != strides[i] * section.elem_len)
+  //       {
+  //         printf ("Memory stride error.\n");
+  //         errno *= 5;
+  //       }
+  //     if ((char *)section.base_addr !=
+  //         CFI_address ((CFI_cdesc_t *)&source, lower))
+  //       {
+  //         CFI_index_t *address;
+  //         address = (CFI_index_t *)CFI_address ((CFI_cdesc_t *)&source,
+  //         lower);
+  //         printf ("source address = %d\n", address);
+  //         printf ("Base address error.\n");
+  //         printf ("section base address = %d\n", (char *)section.base_addr);
+  //         printf ("source base address = %d\n", (char *)source.base_addr);
+  //         errno *= 7;
+  //       }
+  //     printf ("errno = %ld\n", errno);
+  //   }
+
+  printf ("CFI_address\n");
   rank           = 1;
   base_type      = type[3] & CFI_type_mask;
   base_type_size = (type[3] - base_type) >> CFI_type_kind_shift;
   elem_len       = base_type_size;
+  errno          = 1;
   CFI_CDESC_T (rank) source;
-  CFI_CDESC_T (rank) section;
   if (extents != NULL)
     {
       free (extents);
@@ -537,10 +624,12 @@ int main (void)
   strides    = malloc (rank * sizeof (CFI_index_t));
   lower[0]   = 2;
   strides[0] = 5;
-  ind = CFI_establish ((CFI_cdesc_t *)&section, NULL, CFI_attribute_other,
-                       type[3], 0, 1, NULL);
-  ind = CFI_section ((CFI_cdesc_t *)&section, (CFI_cdesc_t *)&source, lower, NULL, strides);
-
+  CFI_index_t *address;
+  address = (CFI_index_t *)CFI_address ((CFI_cdesc_t *)&source, lower);
+  printf ("Address of item %d = %d\n", lower[0] + 1, address);
+  lower[0] = 0;
+  address  = (CFI_index_t *)CFI_address ((CFI_cdesc_t *)&source, lower);
+  printf ("Address of item %d = %d\n", lower[0] + 1, address);
   // /* Fresh descriptor, no NULL variables. */
   // printf ("Test CFI_section: no NULL variables.\n\n");
   // CFI_index_t strides = NULL;

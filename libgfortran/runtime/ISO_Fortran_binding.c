@@ -183,7 +183,9 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
         }
       for (int i = 0; i < rank; i++)
         {
-          dv->dim[i].extent = extents[i];
+          dv->dim[i].lower_bound = 1;
+          dv->dim[i].extent      = extents[i];
+          dv->dim[i].sm          = dv->elem_len;
         }
     }
   /* If the C Descriptor is for a pointer then the lower bounds of every
@@ -322,7 +324,7 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
       // canonical array dimension reduction map and multiplying by the
       // memory
       // stride.
-      CFI_index_t index = tr_subscripts[0];
+      CFI_index_t index = tr_subscripts[0] * dv->dim[0].sm;
       // Make sure the first subscript is in-bounds.
       if (subscripts[0] > dv->dim[0].extent - dv->dim[0].lower_bound)
         {
@@ -560,7 +562,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
                source->elem_len, result->elem_len, CFI_INVALID_ELEM_LEN);
       return CFI_INVALID_ELEM_LEN;
     }
-
+  /* Types must be equal. */
   if (result->type != source->type)
     {
       fprintf (stderr,
@@ -570,7 +572,8 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
                source->type, result->type, CFI_INVALID_TYPE);
       return CFI_INVALID_TYPE;
     }
-
+  /* Stride of zero in the i'th dimension means rank reduction in that
+   * dimension. */
   int zero_count = 0;
   for (int i = 0; i < source->rank; i++)
     {
@@ -579,7 +582,6 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
           zero_count++;
         }
     }
-
   if (result->rank != source->rank - zero_count)
     {
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_section: Rank of result, "
@@ -590,15 +592,14 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
                source->rank - zero_count, CFI_INVALID_RANK);
       return CFI_INVALID_RANK;
     }
-
+  /* Dimension information. */
   CFI_index_t *lower;
   CFI_index_t *upper;
   CFI_index_t *stride;
   lower  = malloc (source->rank * sizeof (CFI_index_t));
   upper  = malloc (source->rank * sizeof (CFI_index_t));
   stride = malloc (source->rank * sizeof (CFI_index_t));
-
-  // Lower bounds.
+  /* Lower bounds. */
   if (lower_bounds == NULL)
     {
       for (int i = 0; i < source->rank; i++)
@@ -613,8 +614,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
           lower[i] = lower_bounds[i];
         }
     }
-
-  // Upper bounds.
+  /* Upper bounds. */
   if (upper_bounds == NULL)
     {
       if (source->dim[source->rank].extent == -1)
@@ -638,8 +638,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
           upper[i] = upper_bounds[i];
         }
     }
-
-  // Stride
+  /* Stride */
   if (strides == NULL)
     {
       for (int i = 0; i < source->rank; i++)
@@ -652,7 +651,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
       for (int i = 0; i < source->rank; i++)
         {
           stride[i] = strides[i];
-          // If stride[i] = then lower[i] and upper[i] must be equal.
+          /* If stride[i] = then lower[i] and upper[i] must be equal. */
           if (stride[i] == 0 && lower[i] != upper[i])
             {
               fprintf (stderr, "ISO_Fortran_binding.c: "
@@ -667,13 +666,13 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
             }
         }
     }
-
-  // Lower bounds.
+  /* Lower bounds. */
   if (lower_bounds != NULL)
     {
       for (int i = 0; i < source->rank; i++)
         {
-          if (stride[i] == 0 || (upper[i] - lower[i] + stride[i]) / stride[i])
+          if (stride[i] == 0 ||
+              (upper[i] - lower[i] + stride[i]) / stride[i] > 0)
             {
               if (lower[i] < source->dim[i].lower_bound ||
                   lower[i] >
@@ -705,13 +704,13 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
             }
         }
     }
-
-  // upper bounds.
+  /* Upper bounds. */
   if (upper_bounds != NULL)
     {
       for (int i = 0; i < source->rank; i++)
         {
-          if (stride[i] == 0 || (upper[i] - lower[i] + stride[i]) / stride[i])
+          if (stride[i] == 0 ||
+              (upper[i] - lower[i] + stride[i]) / stride[i] > 0)
             {
               if (lower[i] < source->dim[i].lower_bound ||
                   lower[i] >
@@ -740,8 +739,8 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
             }
         }
     }
-
-  // Update the result to describe the array section.
+  /* Update the result to describe the array section. */
+  printf ("source address = %d\n", CFI_address (source, lower));
   result->base_addr = CFI_address (source, lower);
   for (int i = 0; i < result->rank; i++)
     {
