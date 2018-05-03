@@ -574,7 +574,10 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
   int zero_count = 0;
   for (int i = 0; i < source->rank; i++)
     {
-      zero_count++;
+      if (strides[i] == 0)
+        {
+          zero_count++;
+        }
     }
 
   if (result->rank != source->rank - zero_count)
