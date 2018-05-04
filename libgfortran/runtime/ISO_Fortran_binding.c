@@ -309,7 +309,9 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
       for (int i = 0; i < dv->rank; i++)
         {
           tr_subscripts[i] = subscripts[dv->rank - i - 1];
-          tr_dim[i]        = dv->dim[dv->rank - i - 1];
+          /* Normalise the subscripts to start counting the address from 0. */
+          tr_subscripts[i] -= dv->dim[i].lower_bound - 1;
+          tr_dim[i] = dv->dim[dv->rank - i - 1];
         }
       /* We assume column major order as that is how fortran stores arrays. We
        * calculate the memory address of the specified element via the canonical
@@ -593,7 +595,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
     {
       for (int i = 0; i < source->rank; i++)
         {
-          lower[i] = source->dim[i].lower_bound;
+          lower[i] = source->dim[i].lower_bound - 1;
         }
     }
   else
@@ -617,7 +619,7 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
         }
       for (int i = 0; i < source->rank; i++)
         {
-          upper[i] = source->dim[i].lower_bound + source->dim[i].extent - 1;
+          upper[i] = source->dim[i].lower_bound + source->dim[i].extent - 2;
         }
     }
   else
@@ -663,9 +665,9 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
           if (stride[i] == 0 ||
               (upper[i] - lower[i] + stride[i]) / stride[i] > 0)
             {
-              if (lower[i] < source->dim[i].lower_bound ||
+              if (lower[i] < source->dim[i].lower_bound - 1 ||
                   lower[i] >
-                      source->dim[i].lower_bound + source->dim[i].extent - 1)
+                      source->dim[i].lower_bound + source->dim[i].extent - 2)
                 {
                   fprintf (stderr, "ISO_Fortran_binding.c: "
                                    "CFI_section: If stride[%d] = "
@@ -701,9 +703,9 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
           if (stride[i] == 0 ||
               (upper[i] - lower[i] + stride[i]) / stride[i] > 0)
             {
-              if (lower[i] < source->dim[i].lower_bound ||
-                  lower[i] >
-                      source->dim[i].lower_bound + source->dim[i].extent - 1)
+              if (upper[i] < source->dim[i].lower_bound - 1 ||
+                  upper[i] >
+                      source->dim[i].lower_bound + source->dim[i].extent - 2)
                 {
                   fprintf (stderr, "ISO_Fortran_binding.c: CFI_section: If "
                                    "stride[%d] = 0, or (upper[%d] - lower[%d] "
