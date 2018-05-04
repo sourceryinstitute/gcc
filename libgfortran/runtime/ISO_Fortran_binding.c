@@ -314,7 +314,6 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
           tr_dim[i]        = dv->dim[idx];
           /* Normalise the subscripts to start counting the address from 0. */
           tr_subscripts[i] -= tr_dim[i].lower_bound;
-          printf ("tr_subscripts[%d] = %ld\n", i, tr_subscripts[i]);
         }
       /* We assume column major order as that is how Fortran stores arrays. We
        * calculate the memory address of the specified element via the canonical
@@ -466,7 +465,12 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
           arr_len *= dv->dim[i].extent;
         }
     }
-  dv->base_addr = malloc (arr_len * dv->elem_len);
+  dv->base_addr = calloc(arr_len, dv->elem_len);
+  // malloc (arr_len * dv->elem_len);
+  if(dv->base_addr == NULL){
+    printf("ISO_Fortran_binding.c: CFI_allocate: Failure in memory allocation. (Error no. %d).\n", CFI_ERROR_MEM_ALLOCATION);
+    return CFI_ERROR_MEM_ALLOCATION;
+  }
 
   return CFI_SUCCESS;
 }
