@@ -578,7 +578,7 @@ int main (void)
   //   }
 
   printf ("CFI_address\n");
-  rank           = 1;
+  rank           = 2;
   base_type      = type[3] & CFI_type_mask;
   base_type_size = (type[3] - base_type) >> CFI_type_kind_shift;
   elem_len       = base_type_size;
@@ -605,7 +605,7 @@ int main (void)
   upper   = malloc (rank * sizeof (CFI_index_t));
   for (int r = 0; r < rank; r++)
     {
-      extents[r] = r * 3 + 10;
+      extents[r] = 10;
       lower[r]   = -3;
       upper[r]   = lower[r] + extents[r] - 1;
     }
@@ -623,14 +623,17 @@ int main (void)
     }
   lower      = malloc (rank * sizeof (CFI_index_t));
   strides    = malloc (rank * sizeof (CFI_index_t));
-  lower[0]   = 0;
+  lower[0]   = 7;
+  lower[1]   = 1;
   strides[0] = 5;
+  strides[1] = 2;
   char *address;
   address = (char *)CFI_address ((CFI_cdesc_t *)&source, lower);
   printf ("Address of fortran item %d = %u\n", lower[0] + 1, address);
-  lower[0] = -4;
-  address  = (CFI_index_t *)CFI_address ((CFI_cdesc_t *)&source, lower);
-  printf ("Address of fortran item %d = %u\n", lower[0] + 1, address);
+  // lower[0] = -1;
+  // lower[1] = 11;
+  // address  = (CFI_index_t *)CFI_address ((CFI_cdesc_t *)&source, lower);
+  // printf ("Address of fortran item %d = %u\n", lower[0] + 1, address);
   // /* Fresh descriptor, no NULL variables. */
   // printf ("Test CFI_section: no NULL variables.\n\n");
   // CFI_index_t strides = NULL;
