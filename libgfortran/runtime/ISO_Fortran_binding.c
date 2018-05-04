@@ -272,92 +272,81 @@ int CFI_setpointer (CFI_cdesc_t *result, CFI_cdesc_t *source,
 
 void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
 {
-
-  // C Descriptor should be allocated.
+  /* C Descriptor should be allocated. */
   if (dv == NULL)
     {
       fprintf (stderr, "ISO_Fortran_binding.c: CFI_address: NULL C Descriptor. "
                        "(Error No. %d).\n",
                CFI_INVALID_DESCRIPTOR);
-      exit (EXIT_FAILURE);
+      return NULL;
     }
-
-  // Base address of C Descriptor should be allocated.
+  /* Base address of C Descriptor should be allocated. */
   if (dv->base_addr == NULL)
     {
       fprintf (stderr,
                "ISO_Fortran_binding.c: CFI_address: NULL base address of "
                "C Descriptor. (Error No. %d).\n",
                CFI_ERROR_BASE_ADDR_NULL);
-      exit (EXIT_FAILURE);
+      return NULL;
     }
-
-  CFI_rank_t rank = dv->rank;
-
-  // dv is a scalar.
-  if (rank == 0)
+  /* If dv is a scalar return the base address. */
+  if (dv->rank == 0)
     {
-      // Base address is the C Descriptor base address.
       return dv->base_addr;
     }
-  // dv is not a scalar.
+  /* If dv is not a scalar calculate the appropriate base address. */
   else
     {
-      // Base address is the C address of the element of the object
-      // specified by
-      // subscripts.
+      /* Base address is the C address of the element of the object specified by
+       * subscripts.*/
       void *base_addr;
-      // In order to properly account for Fortran's row order we need to
-      // transpose the subscripts.
+      /* In order to properly account for Fortran's row order we need to
+       * transpose the subscripts. */
       CFI_index_t *tr_subscripts;
       CFI_dim_t *  tr_dim;
-      tr_subscripts = malloc (rank * sizeof (CFI_index_t));
-      tr_dim        = malloc (rank * sizeof (CFI_dim_t));
-      for (int i = 0; i < rank; i++)
+      tr_subscripts = malloc (dv->rank * sizeof (CFI_index_t));
+      tr_dim        = malloc (dv->rank * sizeof (CFI_dim_t));
+      for (int i = 0; i < dv->rank; i++)
         {
-          tr_subscripts[i] = subscripts[rank - i - 1];
-          tr_dim[i]        = dv->dim[rank - i - 1];
+          tr_subscripts[i] = subscripts[dv->rank - i - 1];
+          tr_dim[i]        = dv->dim[dv->rank - i - 1];
         }
-      // We assume column major order as that is how fortran stores
-      // arrays.
-      // We calculate the memory address of the specified element via the
-      // canonical array dimension reduction map and multiplying by the
-      // memory
-      // stride.
+      /* We assume column major order as that is how fortran stores arrays. We
+       * calculate the memory address of the specified element via the canonical
+       * array dimension reduction map and multiplying by the memory stride. */
       CFI_index_t index = tr_subscripts[0] * dv->dim[0].sm;
       // Make sure the first subscript is in-bounds.
-      if (subscripts[0] > dv->dim[0].extent - dv->dim[0].lower_bound)
+      if (subscripts[0] < dv->dim[0].lower_bound - 1 ||
+          subscripts[0] > dv->dim[0].extent + dv->dim[0].lower_bound - 2)
         {
           fprintf (
-              stderr, "ISO_Fortran_binding.c: CFI_address: subscripts[%d] = "
-                      "%ld, is out of bounds. It must not be greater than "
-                      "dv->dim[%d].extent - dv->dim[%d].lower_bound = %ld - "
-                      "%ld "
-                      "= %ld. (Error No. %d).\n",
-              0, subscripts[0], 0, 0, dv->dim[0].extent, dv->dim[0].lower_bound,
-              dv->dim[0].extent - dv->dim[0].lower_bound,
+              stderr,
+              "ISO_Fortran_binding.c: CFI_address: subscripts[0], is out of "
+              "bounds. dim->[0].lower_bound - 1 <= subscripts[0] <= "
+              "dv->dim[0].extent + dv->dim[0].lower_bound - 2 (%ld <= %ld <= "
+              "%ld). (Error No. %d).\n",
+              dv->dim[0].lower_bound - 1, subscripts[0],
+              dv->dim[0].extent + dv->dim[0].lower_bound - 2,
               CFI_ERROR_OUT_OF_BOUNDS);
-          exit (EXIT_FAILURE);
+          return NULL;
         }
       // Start calculating the memory offset.
       CFI_index_t tmp_index = 1;
-      for (int i = 1; i < rank; i++)
+      for (int i = 1; i < dv->rank; i++)
         {
           // Make sure the subscripts are in-bounds.
-          if (subscripts[i] > dv->dim[i].extent - dv->dim[i].lower_bound)
+          if (subscripts[i] < dv->dim[0].lower_bound - 1 ||
+              subscripts[i] > dv->dim[i].extent + dv->dim[i].lower_bound - 2)
             {
-              fprintf (stderr, "ISO_Fortran_binding.c: "
-                               "CFI_address: subscripts[%d] = "
-                               "%ld, is out of bounds. It must "
-                               "not be greater than "
-                               "dv->dim[%d].extent - "
-                               "dv->dim[%d].lower_bound = %ld - "
-                               "%ld = %ld. (Error No. %d).\n",
-                       i, subscripts[i], i, i, dv->dim[i].extent,
-                       dv->dim[i].lower_bound,
-                       dv->dim[i].extent - dv->dim[i].lower_bound,
+              fprintf (stderr, "ISO_Fortran_binding.c: CFI_address: "
+                               "subscripts[%d], is out of bounds. "
+                               "dim->[%d].lower_bound - 1 <= subscripts[%d] <= "
+                               "dv->dim[%d].extent + dv->dim[%d].lower_bound - "
+                               "2 (%ld <= %ld <= %ld). (Error No. %d).\n",
+                       i, i, i, i, i, dv->dim[i].lower_bound - 1, subscripts[i],
+                       dv->dim[i].extent + dv->dim[i].lower_bound - 2,
                        CFI_ERROR_OUT_OF_BOUNDS);
-              exit (EXIT_FAILURE);
+              return NULL;
             }
           // Find memory location of the subscripted item by mapping
           // the
@@ -740,7 +729,6 @@ int CFI_section (CFI_cdesc_t *result, const CFI_cdesc_t *source,
         }
     }
   /* Update the result to describe the array section. */
-  printf ("source address = %d\n", CFI_address (source, lower));
   result->base_addr = CFI_address (source, lower);
   for (int i = 0; i < result->rank; i++)
     {

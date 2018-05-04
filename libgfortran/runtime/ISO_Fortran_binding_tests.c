@@ -605,13 +605,14 @@ int main (void)
   upper   = malloc (rank * sizeof (CFI_index_t));
   for (int r = 0; r < rank; r++)
     {
-      extents[r] = r * 3 + 17;
-      lower[r]   = 1;
-      upper[r]   = lower[r] + extents[r];
+      extents[r] = r * 3 + 10;
+      lower[r]   = -3;
+      upper[r]   = lower[r] + extents[r] - 1;
     }
   ind = CFI_establish ((CFI_cdesc_t *)&source, NULL, CFI_attribute_allocatable,
                        type[3], elem_len, rank, extents);
   ind = CFI_allocate ((CFI_cdesc_t *)&source, lower, upper, base_type_size);
+  printf("extent = %ld\n", source.dim[0].extent);
   if (lower != NULL)
     {
       free (lower);
@@ -622,14 +623,14 @@ int main (void)
     }
   lower      = malloc (rank * sizeof (CFI_index_t));
   strides    = malloc (rank * sizeof (CFI_index_t));
-  lower[0]   = 2;
+  lower[0]   = 0;
   strides[0] = 5;
-  CFI_index_t *address;
-  address = (CFI_index_t *)CFI_address ((CFI_cdesc_t *)&source, lower);
-  printf ("Address of item %d = %d\n", lower[0] + 1, address);
-  lower[0] = 0;
+  char *address;
+  address = (char *)CFI_address ((CFI_cdesc_t *)&source, lower);
+  printf ("Address of fortran item %d = %u\n", lower[0] + 1, address);
+  lower[0] = -4;
   address  = (CFI_index_t *)CFI_address ((CFI_cdesc_t *)&source, lower);
-  printf ("Address of item %d = %d\n", lower[0] + 1, address);
+  printf ("Address of fortran item %d = %u\n", lower[0] + 1, address);
   // /* Fresh descriptor, no NULL variables. */
   // printf ("Test CFI_section: no NULL variables.\n\n");
   // CFI_index_t strides = NULL;
