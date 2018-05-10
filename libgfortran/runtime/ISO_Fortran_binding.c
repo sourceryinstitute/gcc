@@ -369,6 +369,7 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
       /* There's no way in C to do general arithmetic on a void pointer so we
        * cast to a char pointer, do the arithmetic and cast back to a
        * void pointer. */
+      // printf ("idx = %ld\n", index);
       base_addr = (char *)dv->base_addr + index;
       return base_addr;
     }
@@ -465,12 +466,15 @@ int CFI_allocate (CFI_cdesc_t *dv, const CFI_index_t lower_bounds[],
           arr_len *= dv->dim[i].extent;
         }
     }
-  dv->base_addr = calloc(arr_len, dv->elem_len);
+  dv->base_addr = calloc (arr_len, dv->elem_len);
   // malloc (arr_len * dv->elem_len);
-  if(dv->base_addr == NULL){
-    printf("ISO_Fortran_binding.c: CFI_allocate: Failure in memory allocation. (Error no. %d).\n", CFI_ERROR_MEM_ALLOCATION);
-    return CFI_ERROR_MEM_ALLOCATION;
-  }
+  if (dv->base_addr == NULL)
+    {
+      printf ("ISO_Fortran_binding.c: CFI_allocate: Failure in memory "
+              "allocation. (Error no. %d).\n",
+              CFI_ERROR_MEM_ALLOCATION);
+      return CFI_ERROR_MEM_ALLOCATION;
+    }
 
   return CFI_SUCCESS;
 }

@@ -490,7 +490,9 @@ int main (void)
         }
     }
 
-  printf ("CFI_address.\n\n");
+  printf ("Test CFI_address.\n\n");
+  CFI_index_t *tr_subscripts;
+  CFI_dim_t *  tr_dim;
   /* Loop through type. */
   for (int i = 0; i < 10; i++)
     {
@@ -498,12 +500,12 @@ int main (void)
       if (type[i] == CFI_type_struct)
         {
           base_type      = type[i];
-          base_type_size = 69;
+          base_type_size = 1;
         }
       else if (type[i] == CFI_type_other)
         {
           base_type      = type[i];
-          base_type_size = 666;
+          base_type_size = 1;
         }
       else if (type[i] == CFI_type_char || type[i] == CFI_type_ucs4_char ||
                type[i] == CFI_type_signed_char)
@@ -531,7 +533,7 @@ int main (void)
         {
           attribute = j;
           /* Loop through rank. */
-          for (int k = 10; k <= CFI_MAX_RANK; k++)
+          for (int k = 1; k <= CFI_MAX_RANK; k++)
             {
               errno = 1;
               rank  = k;
@@ -553,8 +555,8 @@ int main (void)
               upper   = malloc (rank * sizeof (CFI_index_t));
               for (int r = 0; r < rank; r++)
                 {
-                  extents[r] = r + 2;
-                  lower[r]   = r - 2;
+                  extents[r] = rank - r + 1;
+                  lower[r]   = rank - r - 3;
                   // printf("lower[%d] = %ld\n", r, lower[r]);
                   upper[r] = lower[r] + extents[r] - 1;
                 }
@@ -565,28 +567,76 @@ int main (void)
                   CFI_allocate ((CFI_cdesc_t *)&source, lower, upper, elem_len);
               if (ind == CFI_SUCCESS)
                 {
-                  if (lower != NULL)
-                    {
-                      free (lower);
-                    }
-                  lower = malloc (rank * sizeof (CFI_index_t));
+                  CFI_index_t dif_addr;
+                  CFI_index_t n_entries = 1;
+                  dif_addr              = (CFI_index_t) (
+                      (char *)CFI_address ((CFI_cdesc_t *)&source, upper) -
+                      (char *)CFI_address ((CFI_cdesc_t *)&source, lower));
+                  // printf ("rank = %d\t", rank);
+                  // printf ("extents = [ ");
                   for (int r = 0; r < rank; r++)
                     {
-                      lower[r] = r - 2;
-                      // printf("lower[%d] = %ld\n", r, lower[r]);
+                      n_entries = n_entries * (upper[r] - lower[r] + 1);
+                      // printf ("%ld ", extents[r]);
                     }
-                  char *address;
-                  address = (char *)CFI_address ((CFI_cdesc_t *)&source, lower);
-                  printf ("rank = %d, Address of fortran item %ld = %u\n", rank,
-                          lower[0], address);
+
+                  /**/
+                  tr_subscripts = malloc (rank * sizeof (CFI_index_t));
+                  tr_dim        = malloc (rank * sizeof (CFI_dim_t));
+                  for (int i = 0; i < rank; i++)
+                    {
+                      CFI_index_t idx  = rank - i - 1;
+                      tr_subscripts[i] = upper[idx];
+                      tr_dim[i]        = source.dim[idx];
+                      /* Normalise the subscripts to start counting the address
+                       * from 0. */
+                      tr_subscripts[i] -= tr_dim[i].lower_bound;
+                    }
+                  /* We assume column major order as that is how Fortran stores
+                   * arrays. We
+                   * calculate the memory address of the specified element via
+                   * the canonical
+                   * array dimension reduction map and multiplying by the memory
+                   * stride. */
+                  CFI_index_t index     = tr_subscripts[0] * tr_dim[0].sm;
+                  CFI_index_t tmp_index = 1;
+                  // printf ("tr_subscripts[0] = %ld\t\t\t\t\t\t\tindex =
+                  // %ld\n",
+                  //         tr_subscripts[0], index);
+                  for (int i = 1; i < rank; i++)
+                    {
+                      tmp_index *= tr_subscripts[i] * tr_dim[i - 1].extent *
+                                   tr_dim[i - 1].sm;
+                      index += tmp_index;
+                      // printf ("tr_subscripts[%d] = %ld\textent[%d] = "
+                      //         "%ld\ttr_dim[%d].sm = %ld\ttmp_index = "
+                      //         "%ld\tindex = %ld\n",
+                      //         i, tr_subscripts[i], i - 1, tr_dim[i -
+                      //         1].extent,
+                      //         i - 1, tr_dim[i - 1].sm, tmp_index, index);
+                    }
+                  free (tr_subscripts);
+                  free (tr_dim);
+                  if (index - dif_addr != 0)
+                    {
+                      errno *= 2;
+                      printf ("Error CFI_address is not being calculated "
+                              "properly.\n");
+                    }
+                  printf ("errno = %ld\n", errno);
+                  // if((CFI_index_t)add_dif != index){
+                  //   printf ("dif_addr = %lu\tindex = %lu\n ", dif_addr,
+                  //   index);
+                  // }
+                  /**/
                 }
               else if (ind == CFI_ERROR_MEM_ALLOCATION)
                 {
-                  goto next_attribute4;
+                  goto next_type;
                 }
             }
         }
-    next_attribute4:;
+    next_type:;
     }
 
   // // This sets the value "val" at position "offset" for a CFI array "arr"
