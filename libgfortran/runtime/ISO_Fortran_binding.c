@@ -204,20 +204,28 @@ int CFI_setpointer (CFI_cdesc_t *result, CFI_cdesc_t *source,
                     const CFI_index_t lower_bounds[])
 {
 
-  // If source is NULL, the result is a C Descriptor that describes a
-  // disassociated pointer.
+  /* If source is NULL, the result is a C Descriptor that describes a
+   * disassociated pointer. */
   if (source == NULL)
     {
       result->base_addr = NULL;
       result->version   = CFI_VERSION;
       result->attribute = CFI_attribute_pointer;
     }
-  // If source is a disassociated pointer, the result is a C Descriptor that
-  // describes a disassociated pointer but with the characteristics of source.
-  else if (source->base_addr == NULL &&
-           source->attribute == CFI_attribute_pointer)
+  /* If source is a disassociated pointer, the result is a C Descriptor that
+   * describes a disassociated pointer but with the characteristics of source.
+   */
+  else
     {
-      result->base_addr = NULL;
+      if (source->base_addr == NULL &&
+          source->attribute == CFI_attribute_pointer)
+        {
+          result->base_addr = NULL;
+        }
+      else
+        {
+          result->base_addr = source->base_addr;
+        }
       result->elem_len  = source->elem_len;
       result->version   = source->version;
       result->rank      = source->rank;
@@ -226,46 +234,71 @@ int CFI_setpointer (CFI_cdesc_t *result, CFI_cdesc_t *source,
       result->offset    = source->offset;
       for (int i = 0; i < source->rank; i++)
         {
-          result->dim[i].lower_bound = source->dim[i].lower_bound;
-          result->dim[i].extent      = source->dim[i].extent;
-          result->dim[i].sm          = source->dim[i].sm;
-        }
-    }
-  else
-    {
-      if (source->rank > 0 && lower_bounds != NULL)
-        {
-          result->base_addr = source->base_addr;
-          result->elem_len  = source->elem_len;
-          result->version   = source->version;
-          result->rank      = source->rank;
-          result->attribute = source->attribute;
-          result->type      = source->type;
-          result->offset    = source->offset;
-          for (int i = 0; i < source->rank; i++)
+          if (lower_bounds != NULL)
             {
               result->dim[i].lower_bound = lower_bounds[i];
-              result->dim[i].extent      = source->dim[i].extent;
-              result->dim[i].sm          = source->dim[i].sm;
             }
-        }
-      else
-        {
-          result->base_addr = source->base_addr;
-          result->elem_len  = source->elem_len;
-          result->version   = source->version;
-          result->rank      = source->rank;
-          result->attribute = source->attribute;
-          result->type      = source->type;
-          result->offset    = source->offset;
-          for (int i = 0; i < source->rank; i++)
+          else
             {
               result->dim[i].lower_bound = source->dim[i].lower_bound;
-              result->dim[i].extent      = source->dim[i].extent;
-              result->dim[i].sm          = source->dim[i].sm;
             }
+          result->dim[i].extent = source->dim[i].extent;
+          result->dim[i].sm     = source->dim[i].sm;
         }
     }
+
+  // if (source->base_addr == NULL &&
+  //          source->attribute == CFI_attribute_pointer)
+  //   {
+  //     result->base_addr = NULL;
+  //     result->elem_len  = source->elem_len;
+  //     result->version   = source->version;
+  //     result->rank      = source->rank;
+  //     result->attribute = source->attribute;
+  //     result->type      = source->type;
+  //     result->offset    = source->offset;
+  //     for (int i = 0; i < source->rank; i++)
+  //       {
+  //         result->dim[i].lower_bound = source->dim[i].lower_bound;
+  //         result->dim[i].extent      = source->dim[i].extent;
+  //         result->dim[i].sm          = source->dim[i].sm;
+  //       }
+  //   }
+  // else
+  //   {
+  //     if (source->rank > 0 && lower_bounds != NULL)
+  //     result->base_addr = source->base_addr;
+  //     result->elem_len  = source->elem_len;
+  //     result->version   = source->version;
+  //     result->rank      = source->rank;
+  //     result->attribute = source->attribute;
+  //     result->type      = source->type;
+  //     result->offset    = source->offset;
+  //       {
+  //         for (int i = 0; i < source->rank; i++)
+  //           {
+  //             result->dim[i].lower_bound = lower_bounds[i];
+  //             result->dim[i].extent      = source->dim[i].extent;
+  //             result->dim[i].sm          = source->dim[i].sm;
+  //           }
+  //       }
+  //     else
+  //       {
+  //         result->base_addr = source->base_addr;
+  //         result->elem_len  = source->elem_len;
+  //         result->version   = source->version;
+  //         result->rank      = source->rank;
+  //         result->attribute = source->attribute;
+  //         result->type      = source->type;
+  //         result->offset    = source->offset;
+  //         for (int i = 0; i < source->rank; i++)
+  //           {
+  //             result->dim[i].lower_bound = source->dim[i].lower_bound;
+  //             result->dim[i].extent      = source->dim[i].extent;
+  //             result->dim[i].sm          = source->dim[i].sm;
+  //           }
+  //       }
+  //   }
 
   return CFI_SUCCESS;
 }

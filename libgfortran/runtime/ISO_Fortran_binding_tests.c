@@ -397,7 +397,7 @@ int main (void)
     }
   printf ("errno = %ld\n\n", errno);
 
-  /* Test CFI_deallocate */
+  /* Test CFI_deallocate. */
   printf ("Test CFI_deallocate.\n\n");
   rank           = 1;
   errno          = 1;
@@ -434,6 +434,7 @@ int main (void)
       printf ("attribute = %d\nerrno = %ld\n\n", test6.attribute, errno);
     }
 
+  /* Test CFI_is_contiguous. */
   printf ("Test CFI_is_contiguous.\n\n");
   int tmp_ind;
   base_type      = type[3] & CFI_type_mask;
@@ -473,7 +474,6 @@ int main (void)
                                   base_type_size);
           ind = CFI_is_contiguous ((CFI_cdesc_t *)&test7);
           printf ("attribute = %d\nrank = %d\n", attribute, rank);
-          // printf("%d\n",ind);
           if (ind != CFI_INVALID_RANK && rank == 0 &&
               tmp_ind != CFI_INVALID_ATTRIBUTE)
             {
@@ -490,6 +490,7 @@ int main (void)
         }
     }
 
+  /* Test CFI_address. */
   printf ("Test CFI_address.\n\n");
   CFI_index_t *tr_subscripts;
   CFI_dim_t *  tr_dim;
@@ -500,12 +501,12 @@ int main (void)
       if (type[i] == CFI_type_struct)
         {
           base_type      = type[i];
-          base_type_size = 1;
+          base_type_size = 69;
         }
       else if (type[i] == CFI_type_other)
         {
           base_type      = type[i];
-          base_type_size = 1;
+          base_type_size = 666;
         }
       else if (type[i] == CFI_type_char || type[i] == CFI_type_ucs4_char ||
                type[i] == CFI_type_signed_char)
@@ -557,8 +558,7 @@ int main (void)
                 {
                   extents[r] = rank - r + 1;
                   lower[r]   = rank - r - 3;
-                  // printf("lower[%d] = %ld\n", r, lower[r]);
-                  upper[r] = lower[r] + extents[r] - 1;
+                  upper[r]   = lower[r] + extents[r] - 1;
                 }
               ind = CFI_establish ((CFI_cdesc_t *)&source, NULL,
                                    CFI_attribute_allocatable, type[i], elem_len,
@@ -572,15 +572,10 @@ int main (void)
                   dif_addr              = (CFI_index_t) (
                       (char *)CFI_address ((CFI_cdesc_t *)&source, upper) -
                       (char *)CFI_address ((CFI_cdesc_t *)&source, lower));
-                  // printf ("rank = %d\t", rank);
-                  // printf ("extents = [ ");
                   for (int r = 0; r < rank; r++)
                     {
                       n_entries = n_entries * (upper[r] - lower[r] + 1);
-                      // printf ("%ld ", extents[r]);
                     }
-
-                  /**/
                   tr_subscripts = malloc (rank * sizeof (CFI_index_t));
                   tr_dim        = malloc (rank * sizeof (CFI_dim_t));
                   for (int i = 0; i < rank; i++)
@@ -600,20 +595,11 @@ int main (void)
                    * stride. */
                   CFI_index_t index     = tr_subscripts[0] * tr_dim[0].sm;
                   CFI_index_t tmp_index = 1;
-                  // printf ("tr_subscripts[0] = %ld\t\t\t\t\t\t\tindex =
-                  // %ld\n",
-                  //         tr_subscripts[0], index);
                   for (int i = 1; i < rank; i++)
                     {
                       tmp_index *= tr_subscripts[i] * tr_dim[i - 1].extent *
                                    tr_dim[i - 1].sm;
                       index += tmp_index;
-                      // printf ("tr_subscripts[%d] = %ld\textent[%d] = "
-                      //         "%ld\ttr_dim[%d].sm = %ld\ttmp_index = "
-                      //         "%ld\tindex = %ld\n",
-                      //         i, tr_subscripts[i], i - 1, tr_dim[i -
-                      //         1].extent,
-                      //         i - 1, tr_dim[i - 1].sm, tmp_index, index);
                     }
                   free (tr_subscripts);
                   free (tr_dim);
@@ -624,11 +610,6 @@ int main (void)
                               "properly.\n");
                     }
                   printf ("errno = %ld\n", errno);
-                  // if((CFI_index_t)add_dif != index){
-                  //   printf ("dif_addr = %lu\tindex = %lu\n ", dif_addr,
-                  //   index);
-                  // }
-                  /**/
                 }
               else if (ind == CFI_ERROR_MEM_ALLOCATION)
                 {
@@ -638,6 +619,42 @@ int main (void)
         }
     next_type:;
     }
+
+  /* Test CFI_setpointer */
+  rank           = 1;
+  errno          = 1;
+  base_type      = type[3] & CFI_type_mask;
+  base_type_size = (type[3] - base_type) >> CFI_type_kind_shift;
+  attribute      = CFI_attribute_other;
+  CFI_CDESC_T (rank) ptr;
+
+  if (extents != NULL)
+    {
+      free (extents);
+    }
+  if (lower != NULL)
+    {
+      free (lower);
+    }
+  extents = malloc (rank * sizeof (CFI_index_t));
+  lower   = malloc (rank * sizeof (CFI_index_t));
+  for (int r = 0; r < rank; r++)
+    {
+      extents[r] = r + 1;
+      lower[r]   = r - 2;
+    }
+
+  ind = CFI_establish ((CFI_cdesc_t *)&ptr, &ind, attribute, type[3], elem_len,
+                       rank, extents);
+  printf ("ptr.dim[0].lower_bounds = %ld\n", ptr.dim[0].lower_bound);
+  ind = CFI_setpointer ((CFI_cdesc_t *)&ptr, (CFI_cdesc_t *)&ptr, lower);
+  printf ("ptr.dim[0].lower_bounds = %ld\n", ptr.dim[0].lower_bound);
+  /* NULL source. */
+  ind = CFI_setpointer ((CFI_cdesc_t *)&ptr, NULL, lower);
+  printf("ptr.attribute = %d\n", ptr.attribute);
+
+  /* Test CFI_section */
+  /* Test CFI_select_part */
 
   // // This sets the value "val" at position "offset" for a CFI array "arr"
   // with element size "arr.elem_len" described by CFI_cdesc_t.
