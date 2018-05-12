@@ -203,7 +203,6 @@ int CFI_establish (CFI_cdesc_t *dv, void *base_addr, CFI_attribute_t attribute,
 int CFI_setpointer (CFI_cdesc_t *result, CFI_cdesc_t *source,
                     const CFI_index_t lower_bounds[])
 {
-
   /* If source is NULL, the result is a C Descriptor that describes a
    * disassociated pointer. */
   if (source == NULL)
@@ -217,6 +216,33 @@ int CFI_setpointer (CFI_cdesc_t *result, CFI_cdesc_t *source,
    */
   else
     {
+      if (result->elem_len != source->elem_len)
+        {
+          fprintf (stderr, "ISO_Fortran_binding.c: CFI_setpointer: Element "
+                           "lengths of result (result->elem_len = %ld) and "
+                           "source (source->elem_len = %ld) must be the same. "
+                           "(Error No. %d).\n",
+                   result->elem_len, source->elem_len, CFI_INVALID_ELEM_LEN);
+          return CFI_INVALID_ELEM_LEN;
+        }
+      if (result->rank != source->rank)
+        {
+          fprintf (stderr, "ISO_Fortran_binding.c: CFI_setpointer: Ranks of "
+                           "result (result->elem_len = %ld) and source "
+                           "(source->elem_len = %ld) must be the same. (Error "
+                           "No. %d).\n",
+                   result->rank, source->rank, CFI_INVALID_RANK);
+          return CFI_INVALID_RANK;
+        }
+      if (result->type != source->type)
+        {
+          fprintf (stderr, "ISO_Fortran_binding.c: CFI_setpointer: Types of "
+                           "result (result->elem_len = %ld) and source "
+                           "(source->elem_len = %ld) must be the same. (Error "
+                           "No. %d).\n",
+                   result->type, source->type, CFI_INVALID_TYPE);
+          return CFI_INVALID_TYPE;
+        }
       if (source->base_addr == NULL &&
           source->attribute == CFI_attribute_pointer)
         {
@@ -226,11 +252,8 @@ int CFI_setpointer (CFI_cdesc_t *result, CFI_cdesc_t *source,
         {
           result->base_addr = source->base_addr;
         }
-      result->elem_len  = source->elem_len;
       result->version   = source->version;
-      result->rank      = source->rank;
       result->attribute = source->attribute;
-      result->type      = source->type;
       result->offset    = source->offset;
       for (int i = 0; i < source->rank; i++)
         {
@@ -403,7 +426,7 @@ void *CFI_address (const CFI_cdesc_t *dv, const CFI_index_t subscripts[])
        * cast to a char pointer, do the arithmetic and cast back to a
        * void pointer. */
       // printf ("idx = %ld\n", index);
-      base_addr = (char *)dv->base_addr + index;
+      base_addr = (char *) dv->base_addr + index;
       return base_addr;
     }
 }
@@ -886,7 +909,7 @@ int CFI_select_part (CFI_cdesc_t *result, const CFI_cdesc_t *source,
       return CFI_ERROR_OUT_OF_BOUNDS;
     }
 
-  result->base_addr = (char *)source->base_addr + displacement;
+  result->base_addr = (char *) source->base_addr + displacement;
 
   return CFI_SUCCESS;
 }

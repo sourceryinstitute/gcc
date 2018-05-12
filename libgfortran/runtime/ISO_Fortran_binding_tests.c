@@ -55,7 +55,7 @@ int main (void)
                   test1.base_addr = NULL;
                   free (test1.base_addr);
                 }
-              ind = CFI_establish ((CFI_cdesc_t *)&test1, NULL, attribute,
+              ind = CFI_establish ((CFI_cdesc_t *) &test1, NULL, attribute,
                                    type[i], elem_len, rank, NULL);
               printf ("attribute = %d\ntype = %d\nbase_type = %ld\nrank = "
                       "%d\nelem_len = %ld\n",
@@ -150,7 +150,7 @@ int main (void)
                   test2.base_addr = NULL;
                   free (test2.base_addr);
                 }
-              ind = CFI_establish ((CFI_cdesc_t *)&test2, &ind, attribute,
+              ind = CFI_establish ((CFI_cdesc_t *) &test2, &ind, attribute,
                                    type[i], elem_len, rank, extents);
               printf ("attribute = %d\ntype = %d\nbase_type = %ld\nrank = "
                       "%d\nelem_len = %ld\n",
@@ -313,9 +313,9 @@ int main (void)
                   test3.base_addr = NULL;
                   free (test3.base_addr);
                 }
-              ind = CFI_establish ((CFI_cdesc_t *)&test3, NULL, attribute,
+              ind = CFI_establish ((CFI_cdesc_t *) &test3, NULL, attribute,
                                    type[i], elem_len, rank, extents);
-              ind = CFI_allocate ((CFI_cdesc_t *)&test3, lower, upper,
+              ind = CFI_allocate ((CFI_cdesc_t *) &test3, lower, upper,
                                   base_type_size);
               printf ("type = %ld\nelem_len = %ld\n", base_type,
                       test3.elem_len);
@@ -372,9 +372,9 @@ int main (void)
   base_type      = type[3] & CFI_type_mask;
   base_type_size = (type[3] - base_type) >> CFI_type_kind_shift;
   attribute      = CFI_attribute_allocatable;
-  ind = CFI_establish ((CFI_cdesc_t *)&test4, NULL, attribute, type[3],
+  ind = CFI_establish ((CFI_cdesc_t *) &test4, NULL, attribute, type[3],
                        elem_len, rank, NULL);
-  ind = CFI_allocate ((CFI_cdesc_t *)&test4, NULL, NULL, base_type_size);
+  ind = CFI_allocate ((CFI_cdesc_t *) &test4, NULL, NULL, base_type_size);
   if (ind != CFI_INVALID_EXTENT)
     {
       errno *= 2;
@@ -388,9 +388,9 @@ int main (void)
   base_type      = type[3] & CFI_type_mask;
   base_type_size = (type[3] - base_type) >> CFI_type_kind_shift;
   attribute      = CFI_attribute_pointer;
-  ind = CFI_establish ((CFI_cdesc_t *)&test5, &ind, attribute, type[3],
+  ind = CFI_establish ((CFI_cdesc_t *) &test5, &ind, attribute, type[3],
                        elem_len, rank, extents);
-  ind = CFI_allocate ((CFI_cdesc_t *)&test5, NULL, NULL, base_type_size);
+  ind = CFI_allocate ((CFI_cdesc_t *) &test5, NULL, NULL, base_type_size);
   if (ind != CFI_ERROR_BASE_ADDR_NOT_NULL)
     {
       errno *= 2;
@@ -422,10 +422,10 @@ int main (void)
       lower   = malloc (rank * sizeof (CFI_index_t));
       upper   = malloc (rank * sizeof (CFI_index_t));
       CFI_CDESC_T (rank) test6;
-      ind = CFI_establish ((CFI_cdesc_t *)&test6, NULL, attribute, type[i],
+      ind = CFI_establish ((CFI_cdesc_t *) &test6, NULL, attribute, type[i],
                            elem_len, rank, extents);
-      ind = CFI_allocate ((CFI_cdesc_t *)&test6, lower, upper, base_type_size);
-      ind = CFI_deallocate ((CFI_cdesc_t *)&test6);
+      ind = CFI_allocate ((CFI_cdesc_t *) &test6, lower, upper, base_type_size);
+      ind = CFI_deallocate ((CFI_cdesc_t *) &test6);
       if (ind != CFI_INVALID_ATTRIBUTE && test6.base_addr != NULL)
         {
           errno *= 2;
@@ -468,11 +468,11 @@ int main (void)
               upper[r]   = lower[r] + extents[r];
             }
           CFI_CDESC_T (rank) test7;
-          ind = CFI_establish ((CFI_cdesc_t *)&test7, NULL, attribute, type[3],
+          ind = CFI_establish ((CFI_cdesc_t *) &test7, NULL, attribute, type[3],
                                elem_len, rank, extents);
-          tmp_ind = CFI_allocate ((CFI_cdesc_t *)&test7, lower, upper,
+          tmp_ind = CFI_allocate ((CFI_cdesc_t *) &test7, lower, upper,
                                   base_type_size);
-          ind = CFI_is_contiguous ((CFI_cdesc_t *)&test7);
+          ind = CFI_is_contiguous ((CFI_cdesc_t *) &test7);
           printf ("attribute = %d\nrank = %d\n", attribute, rank);
           if (ind != CFI_INVALID_RANK && rank == 0 &&
               tmp_ind != CFI_INVALID_ATTRIBUTE)
@@ -560,18 +560,18 @@ int main (void)
                   lower[r]   = rank - r - 3;
                   upper[r]   = lower[r] + extents[r] - 1;
                 }
-              ind = CFI_establish ((CFI_cdesc_t *)&source, NULL,
+              ind = CFI_establish ((CFI_cdesc_t *) &source, NULL,
                                    CFI_attribute_allocatable, type[i], elem_len,
                                    rank, extents);
-              ind =
-                  CFI_allocate ((CFI_cdesc_t *)&source, lower, upper, elem_len);
+              ind = CFI_allocate ((CFI_cdesc_t *) &source, lower, upper,
+                                  elem_len);
               if (ind == CFI_SUCCESS)
                 {
                   CFI_index_t dif_addr;
                   CFI_index_t n_entries = 1;
                   dif_addr              = (CFI_index_t) (
-                      (char *)CFI_address ((CFI_cdesc_t *)&source, upper) -
-                      (char *)CFI_address ((CFI_cdesc_t *)&source, lower));
+                      (char *) CFI_address ((CFI_cdesc_t *) &source, upper) -
+                      (char *) CFI_address ((CFI_cdesc_t *) &source, lower));
                   for (int r = 0; r < rank; r++)
                     {
                       n_entries = n_entries * (upper[r] - lower[r] + 1);
@@ -618,15 +618,17 @@ int main (void)
             }
         }
     next_type:;
+      printf ("\n");
     }
 
   /* Test CFI_setpointer */
+  printf ("Test CFI_setpointer: Checking component assignment.\n\n");
   rank           = 1;
   errno          = 1;
   base_type      = type[3] & CFI_type_mask;
   base_type_size = (type[3] - base_type) >> CFI_type_kind_shift;
   attribute      = CFI_attribute_other;
-  CFI_CDESC_T (rank) ptr;
+  CFI_CDESC_T (rank) test8a, test8b;
 
   if (extents != NULL)
     {
@@ -643,15 +645,68 @@ int main (void)
       extents[r] = r + 1;
       lower[r]   = r - 2;
     }
+  ind = CFI_establish ((CFI_cdesc_t *) &test8a, &ind, attribute, type[3],
+                       elem_len, rank, extents);
+  for (int r = 0; r < rank; r++)
+    {
+      extents[r] = r + 2;
+    }
+  ind = CFI_establish ((CFI_cdesc_t *) &test8b, &errno, attribute, type[3],
+                       elem_len, rank, extents);
+  ind =
+      CFI_setpointer ((CFI_cdesc_t *) &test8a, (CFI_cdesc_t *) &test8b, lower);
+  for (int r = 0; r < rank; r++)
+    {
+      if (test8a.dim[r].lower_bound != lower[r])
+        {
+          printf ("CFI_setpointer failed reassign lower bounds.\n");
+          printf ("test8a.dim[%d].lower_bound = %ld\tlower[%d] = %ld\n", r,
+                  test8a.dim[r].lower_bound, r, lower[r]);
+          errno *= 2;
+        }
+      if (test8a.dim[r].extent != test8b.dim[r].extent)
+        {
+          printf ("CFI_setpointer failed reassign lower bounds.\n");
+          printf ("test8a.dim[%d].extent = %ld\ttest8b.dim[%d].extent = %ld\n",
+                  r, test8a.dim[r].extent, r, test8b.dim[r].extent);
+          errno *= 3;
+        }
+      if (test8a.dim[r].sm != test8b.dim[r].sm)
+        {
+          printf ("CFI_setpointer failed reassign lower bounds.\n");
+          printf ("test8a.dim[%d].sm = %ld\ttest8b.dim[%d].sm = %ld\n",
+                  r, test8a.dim[r].sm, r, test8b.dim[r].sm);
+          errno *= 5;
+        }
+    }
+  if (test8a.base_addr != test8b.base_addr)
+    {
+      printf ("CFI_setpointer failed to reassign base address.\n");
+      errno *= 7;
+    }
+  if (test8a.version != test8b.version)
+    {
+      printf ("CFI_setpointer failed to reassign version.\n");
+      errno *= 11;
+    }
+  if (test8a.attribute != test8b.attribute)
+    {
+      printf ("CFI_setpointer failed to reassign attribute.\n");
+      errno *= 13;
+    }
+  if (test8a.offset != test8b.offset)
+    {
+      printf ("CFI_setpointer failed to change lower bounds.\n");
+      errno *= 17;
+    }
 
-  ind = CFI_establish ((CFI_cdesc_t *)&ptr, &ind, attribute, type[3], elem_len,
-                       rank, extents);
-  printf ("ptr.dim[0].lower_bounds = %ld\n", ptr.dim[0].lower_bound);
-  ind = CFI_setpointer ((CFI_cdesc_t *)&ptr, (CFI_cdesc_t *)&ptr, lower);
-  printf ("ptr.dim[0].lower_bounds = %ld\n", ptr.dim[0].lower_bound);
+  printf ("errno = %ld\n\n", errno);
+
   /* NULL source. */
-  ind = CFI_setpointer ((CFI_cdesc_t *)&ptr, NULL, lower);
-  printf("ptr.attribute = %d\n", ptr.attribute);
+  printf ("CFI_set_pointer: change of attribute to a CFI_attribute_pointer.\n");
+  ind = CFI_setpointer ((CFI_cdesc_t *) &test8a, NULL, lower);
+  printf ("ptr.attribute = %d\n", test8a.attribute);
+  printf ("test8.base_addr = %lu\n", (char *) test8a.base_addr);
 
   /* Test CFI_section */
   /* Test CFI_select_part */
