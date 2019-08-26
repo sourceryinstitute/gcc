@@ -27,7 +27,6 @@ cd oppencoarrays
 ./install.sh --package gcc \
   --from-url https://github.com/sourceryinstitute/gcc/archive/<release-tag>.tar.gz \
   --install-version <release-tag> \
-  --disable-bootstrap \
   --num-threads 4
 ```
 where `<release-tag>` must be replaced with the appropriate string such as teams-20180108 and where 
