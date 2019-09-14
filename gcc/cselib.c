@@ -1,5 +1,5 @@
 /* Common subexpression elimination library for GNU compiler.
-   Copyright (C) 1987-2018 Free Software Foundation, Inc.
+   Copyright (C) 1987-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -54,7 +54,8 @@ static unsigned int cselib_hash_rtx (rtx, int, machine_mode);
 static cselib_val *new_cselib_val (unsigned int, machine_mode, rtx);
 static void add_mem_for_addr (cselib_val *, cselib_val *, rtx);
 static cselib_val *cselib_lookup_mem (rtx, int);
-static void cselib_invalidate_regno (unsigned int, machine_mode);
+static void cselib_invalidate_regno (unsigned int, machine_mode,
+				     const_rtx = NULL);
 static void cselib_invalidate_mem (rtx);
 static void cselib_record_set (rtx, cselib_val *, cselib_val *);
 static void cselib_record_sets (rtx_insn *);
@@ -1661,6 +1662,7 @@ cselib_expand_value_rtx_1 (rtx orig, struct expand_value_data *evd,
       /* SCRATCH must be shared because they represent distinct values.  */
       return orig;
     case CLOBBER:
+    case CLOBBER_HIGH:
       if (REG_P (XEXP (orig, 0)) && HARD_REGISTER_NUM_P (REGNO (XEXP (orig, 0))))
 	return orig;
       break;
@@ -2163,7 +2165,8 @@ cselib_lookup (rtx x, machine_mode mode,
    invalidating call clobbered registers across a call.  */
 
 static void
-cselib_invalidate_regno (unsigned int regno, machine_mode mode)
+cselib_invalidate_regno (unsigned int regno, machine_mode mode,
+			 const_rtx setter)
 {
   unsigned int endregno;
   unsigned int i;
@@ -2186,6 +2189,9 @@ cselib_invalidate_regno (unsigned int regno, machine_mode mode)
 	i = regno - max_value_regs;
 
       endregno = end_hard_regno (mode, regno);
+
+      if (setter && GET_CODE (setter) == CLOBBER_HIGH)
+	gcc_assert (endregno == regno + 1);
     }
   else
     {
@@ -2216,6 +2222,19 @@ cselib_invalidate_regno (unsigned int regno, machine_mode mode)
 	    {
 	      l = &(*l)->next;
 	      continue;
+	    }
+
+	  /* Ignore if clobber high and the register isn't clobbered.  */
+	  if (setter && GET_CODE (setter) == CLOBBER_HIGH)
+	    {
+	      gcc_assert (endregno == regno + 1);
+	      const_rtx x = XEXP (setter, 0);
+	      if (!reg_is_clobbered_by_clobber_high (i, GET_MODE (v->val_rtx),
+						     x))
+		{
+		  l = &(*l)->next;
+		  continue;
+		}
 	    }
 
 	  /* We have an overlap.  */
@@ -2352,10 +2371,10 @@ cselib_invalidate_mem (rtx mem_rtx)
   *vp = &dummy_val;
 }
 
-/* Invalidate DEST, which is being assigned to or clobbered.  */
+/* Invalidate DEST, which is being assigned to or clobbered by SETTER.  */
 
 void
-cselib_invalidate_rtx (rtx dest)
+cselib_invalidate_rtx (rtx dest, const_rtx setter)
 {
   while (GET_CODE (dest) == SUBREG
 	 || GET_CODE (dest) == ZERO_EXTRACT
@@ -2363,7 +2382,7 @@ cselib_invalidate_rtx (rtx dest)
     dest = XEXP (dest, 0);
 
   if (REG_P (dest))
-    cselib_invalidate_regno (REGNO (dest), GET_MODE (dest));
+    cselib_invalidate_regno (REGNO (dest), GET_MODE (dest), setter);
   else if (MEM_P (dest))
     cselib_invalidate_mem (dest);
 }
@@ -2371,10 +2390,10 @@ cselib_invalidate_rtx (rtx dest)
 /* A wrapper for cselib_invalidate_rtx to be called via note_stores.  */
 
 static void
-cselib_invalidate_rtx_note_stores (rtx dest, const_rtx ignore ATTRIBUTE_UNUSED,
+cselib_invalidate_rtx_note_stores (rtx dest, const_rtx setter,
 				   void *data ATTRIBUTE_UNUSED)
 {
-  cselib_invalidate_rtx (dest);
+  cselib_invalidate_rtx (dest, setter);
 }
 
 /* Record the result of a SET instruction.  DEST is being set; the source
@@ -2499,12 +2518,12 @@ cselib_record_sets (rtx_insn *insn)
   int n_sets = 0;
   int i;
   struct cselib_set sets[MAX_SETS];
-  rtx body = PATTERN (insn);
   rtx cond = 0;
   int n_sets_before_autoinc;
+  int n_strict_low_parts = 0;
   struct cselib_record_autoinc_data data;
 
-  body = PATTERN (insn);
+  rtx body = PATTERN (insn);
   if (GET_CODE (body) == COND_EXEC)
     {
       cond = COND_EXEC_TEST (body);
@@ -2556,6 +2575,7 @@ cselib_record_sets (rtx_insn *insn)
   for (i = 0; i < n_sets; i++)
     {
       rtx dest = sets[i].dest;
+      rtx orig = dest;
 
       /* A STRICT_LOW_PART can be ignored; we'll record the equivalence for
          the low part after invalidating any knowledge about larger modes.  */
@@ -2581,6 +2601,56 @@ cselib_record_sets (rtx_insn *insn)
 	  else
 	    sets[i].dest_addr_elt = 0;
 	}
+
+      /* Improve handling of STRICT_LOW_PART if the current value is known
+	 to be const0_rtx, then the low bits will be set to dest and higher
+	 bits will remain zero.  Used in code like:
+
+	 {di:SI=0;clobber flags:CC;}
+	 flags:CCNO=cmp(bx:SI,0)
+	 strict_low_part(di:QI)=flags:CCNO<=0
+
+	 where we can note both that di:QI=flags:CCNO<=0 and
+	 also that because di:SI is known to be 0 and strict_low_part(di:QI)
+	 preserves the upper bits that di:SI=zero_extend(flags:CCNO<=0).  */
+      scalar_int_mode mode;
+      if (dest != orig
+	  && cselib_record_sets_hook
+	  && REG_P (dest)
+	  && HARD_REGISTER_P (dest)
+	  && sets[i].src_elt
+	  && is_a <scalar_int_mode> (GET_MODE (dest), &mode)
+	  && n_sets + n_strict_low_parts < MAX_SETS)
+	{
+	  opt_scalar_int_mode wider_mode_iter;
+	  FOR_EACH_WIDER_MODE (wider_mode_iter, mode)
+	    {
+	      scalar_int_mode wider_mode = wider_mode_iter.require ();
+	      if (GET_MODE_PRECISION (wider_mode) > BITS_PER_WORD)
+		break;
+
+	      rtx reg = gen_lowpart (wider_mode, dest);
+	      if (!REG_P (reg))
+		break;
+
+	      cselib_val *v = cselib_lookup (reg, wider_mode, 0, VOIDmode);
+	      if (!v)
+		continue;
+
+	      struct elt_loc_list *l;
+	      for (l = v->locs; l; l = l->next)
+		if (l->loc == const0_rtx)
+		  break;
+
+	      if (!l)
+		continue;
+
+	      sets[n_sets + n_strict_low_parts].dest = reg;
+	      sets[n_sets + n_strict_low_parts].src = dest;
+	      sets[n_sets + n_strict_low_parts++].src_elt = sets[i].src_elt;
+	      break;
+	    }
+	}
     }
 
   if (cselib_record_sets_hook)
@@ -2589,7 +2659,7 @@ cselib_record_sets (rtx_insn *insn)
   /* Invalidate all locations written by this insn.  Note that the elts we
      looked up in the previous loop aren't affected, just some of their
      locations may go away.  */
-  note_stores (body, cselib_invalidate_rtx_note_stores, NULL);
+  note_pattern_stores (body, cselib_invalidate_rtx_note_stores, NULL);
 
   for (i = n_sets_before_autoinc; i < n_sets; i++)
     cselib_invalidate_rtx (sets[i].dest);
@@ -2624,6 +2694,20 @@ cselib_record_sets (rtx_insn *insn)
       if (REG_P (dest)
 	  || (MEM_P (dest) && cselib_record_memory))
 	cselib_record_set (dest, sets[i].src_elt, sets[i].dest_addr_elt);
+    }
+
+  /* And deal with STRICT_LOW_PART.  */
+  for (i = 0; i < n_strict_low_parts; i++)
+    {
+      if (! PRESERVED_VALUE_P (sets[n_sets + i].src_elt->val_rtx))
+	continue;
+      machine_mode dest_mode = GET_MODE (sets[n_sets + i].dest);
+      cselib_val *v
+	= cselib_lookup (sets[n_sets + i].dest, dest_mode, 1, VOIDmode);
+      cselib_preserve_value (v);
+      rtx r = gen_rtx_ZERO_EXTEND (dest_mode,
+				   sets[n_sets + i].src_elt->val_rtx);
+      cselib_add_permanent_equiv (v, r, insn);
     }
 }
 
@@ -2682,10 +2766,10 @@ cselib_process_insn (rtx_insn *insn)
   if (CALL_P (insn))
     {
       for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
-	if (call_used_regs[i]
+	if (call_used_or_fixed_reg_p (i)
 	    || (REG_VALUES (i) && REG_VALUES (i)->elt
 		&& (targetm.hard_regno_call_part_clobbered
-		    (i, GET_MODE (REG_VALUES (i)->elt->val_rtx)))))
+		    (insn, i, GET_MODE (REG_VALUES (i)->elt->val_rtx)))))
 	  cselib_invalidate_regno (i, reg_raw_mode[i]);
 
       /* Since it is not clear how cselib is going to be used, be
@@ -2710,9 +2794,12 @@ cselib_process_insn (rtx_insn *insn)
   if (CALL_P (insn))
     {
       for (x = CALL_INSN_FUNCTION_USAGE (insn); x; x = XEXP (x, 1))
-	if (GET_CODE (XEXP (x, 0)) == CLOBBER)
-	  cselib_invalidate_rtx (XEXP (XEXP (x, 0), 0));
-      /* Flush evertything on setjmp.  */
+	{
+	  gcc_assert (GET_CODE (XEXP (x, 0)) != CLOBBER_HIGH);
+	  if (GET_CODE (XEXP (x, 0)) == CLOBBER)
+	    cselib_invalidate_rtx (XEXP (XEXP (x, 0), 0));
+	}
+      /* Flush everything on setjmp.  */
       if (cselib_preserve_constants
 	  && find_reg_note (insn, REG_SETJMP, NULL))
 	{
@@ -2770,9 +2857,14 @@ cselib_init (int record_what)
     }
   used_regs = XNEWVEC (unsigned int, cselib_nregs);
   n_used_regs = 0;
-  cselib_hash_table = new hash_table<cselib_hasher> (31);
+  /* FIXME: enable sanitization (PR87845) */
+  cselib_hash_table
+    = new hash_table<cselib_hasher> (31, /* ggc */ false,
+				     /* sanitize_eq_and_hash */ false);
   if (cselib_preserve_constants)
-    cselib_preserved_hash_table = new hash_table<cselib_hasher> (31);
+    cselib_preserved_hash_table
+      = new hash_table<cselib_hasher> (31, /* ggc */ false,
+				       /* sanitize_eq_and_hash */ false);
   next_uid = 1;
 }
 

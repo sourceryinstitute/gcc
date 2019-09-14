@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2018, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2019, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -42,10 +42,8 @@
 --  Inline_Always subprograms, but there are fewer restrictions on the source
 --  of subprograms.
 
-with Alloc;
 with Opt;    use Opt;
 with Sem;    use Sem;
-with Table;
 with Types;  use Types;
 with Warnsw; use Warnsw;
 
@@ -63,20 +61,23 @@ package Inline is
    --  See full description in body of Sem_Ch12 for more details
 
    type Pending_Body_Info is record
-      Inst_Node : Node_Id;
-      --  Node for instantiation that requires the body
-
       Act_Decl : Node_Id;
       --  Declaration for package or subprogram spec for instantiation
 
-      Expander_Status : Boolean;
-      --  If the body is instantiated only for semantic checking, expansion
-      --  must be inhibited.
+      Config_Switches : Config_Switches_Type;
+      --  Capture the values of configuration switches
 
       Current_Sem_Unit : Unit_Number_Type;
       --  The semantic unit within which the instantiation is found. Must be
       --  restored when compiling the body, to insure that internal entities
       --  use the same counter and are unique over spec and body.
+
+      Expander_Status : Boolean;
+      --  If the body is instantiated only for semantic checking, expansion
+      --  must be inhibited.
+
+      Inst_Node : Node_Id;
+      --  Node for instantiation that requires the body
 
       Scope_Suppress           : Suppress_Record;
       Local_Suppress_Stack_Top : Suppress_Stack_Entry_Ptr;
@@ -93,44 +94,9 @@ package Inline is
       --  This means we have to capture this information from the current scope
       --  at the point of instantiation.
 
-      Version : Ada_Version_Type;
-      --  The body must be compiled with the same language version as the
-      --  spec. The version may be set by a configuration pragma in a separate
-      --  file or in the current file, and may differ from body to body.
-
-      Version_Pragma : Node_Id;
-      --  This is linked with the Version value
-
       Warnings : Warning_Record;
       --  Capture values of warning flags
-
-      SPARK_Mode        : SPARK_Mode_Type;
-      SPARK_Mode_Pragma : Node_Id;
-      --  SPARK_Mode for an instance is the one applicable at the point of
-      --  instantiation. SPARK_Mode_Pragma is the related active pragma.
    end record;
-
-   package Pending_Instantiations is new Table.Table (
-     Table_Component_Type => Pending_Body_Info,
-     Table_Index_Type     => Int,
-     Table_Low_Bound      => 0,
-     Table_Initial        => Alloc.Pending_Instantiations_Initial,
-     Table_Increment      => Alloc.Pending_Instantiations_Increment,
-     Table_Name           => "Pending_Instantiations");
-
-   --  The following table records subprograms and packages for which
-   --  generation of subprogram descriptors must be delayed.
-
-   package Pending_Descriptor is new Table.Table (
-     Table_Component_Type => Entity_Id,
-     Table_Index_Type     => Int,
-     Table_Low_Bound      => 0,
-     Table_Initial        => Alloc.Pending_Instantiations_Initial,
-     Table_Increment      => Alloc.Pending_Instantiations_Increment,
-     Table_Name           => "Pending_Descriptor");
-
-   --  The following should be initialized in an init call in Frontend, we
-   --  have thoughts of making the frontend reusable in future ???
 
    -----------------
    -- Subprograms --
@@ -152,6 +118,9 @@ package Inline is
    --  a discriminant check for which gigi builds a call or an at-end handler.
    --  Add E's enclosing unit to Inlined_Bodies so that E can be subsequently
    --  retrieved and analyzed. N is the node giving rise to the call to E.
+
+   procedure Add_Pending_Instantiation (Inst : Node_Id; Act_Decl : Node_Id);
+   --  Add an entry in the table of generic bodies to be instantiated.
 
    procedure Analyze_Inlined_Bodies;
    --  At end of compilation, analyze the bodies of all units that contain

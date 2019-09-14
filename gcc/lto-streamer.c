@@ -1,7 +1,7 @@
 /* Miscellaneous utilities for GIMPLE streaming.  Things that are used
    in both input and output are here.
 
-   Copyright (C) 2009-2018 Free Software Foundation, Inc.
+   Copyright (C) 2009-2019 Free Software Foundation, Inc.
    Contributed by Doug Kwan <dougkwan@google.com>
 
 This file is part of GCC.
@@ -35,14 +35,11 @@ along with GCC; see the file COPYING3.  If not see
 /* Statistics gathered during LTO, WPA and LTRANS.  */
 struct lto_stats_d lto_stats;
 
-/* LTO uses bitmaps with different life-times.  So use a separate
-   obstack for all LTO bitmaps.  */
-static bitmap_obstack lto_obstack;
-static bool lto_obstack_initialized;
-
 const char *section_name_prefix = LTO_SECTION_NAME_PREFIX;
 /* Set when streaming LTO for offloading compiler.  */
 bool lto_stream_offload_p;
+
+FILE *streamer_dump_file;
 
 /* Return a string representing LTO tag TAG.  */
 
@@ -108,28 +105,6 @@ lto_tag_name (enum LTO_tags tag)
     default:
       return "LTO_UNKNOWN";
     }
-}
-
-
-/* Allocate a bitmap from heap.  Initializes the LTO obstack if necessary.  */
-
-bitmap
-lto_bitmap_alloc (void)
-{
-  if (!lto_obstack_initialized)
-    {
-      bitmap_obstack_initialize (&lto_obstack);
-      lto_obstack_initialized = true;
-    }
-  return BITMAP_ALLOC (&lto_obstack);
-}
-
-/* Free bitmap B.  */
-
-void
-lto_bitmap_free (bitmap b)
-{
-  BITMAP_FREE (b);
 }
 
 

@@ -1,5 +1,5 @@
 /* ARM EABI compliant unwinding routines.
-   Copyright (C) 2004-2018 Free Software Foundation, Inc.
+   Copyright (C) 2004-2019 Free Software Foundation, Inc.
    Contributed by Paul Brook
 
    This file is free software; you can redistribute it and/or modify it
@@ -21,6 +21,7 @@
    see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    <http://www.gnu.org/licenses/>.  */
 
+#pragma GCC target ("general-regs-only")
 #include "unwind.h"
 
 /* Misc constants.  */
@@ -198,6 +199,11 @@ _Unwind_VRS_Result _Unwind_VRS_Set (_Unwind_Context *context,
 	return _UVRSR_FAILED;
 
       vrs->core.r[regno] = *(_uw *) valuep;
+#if defined(__thumb__)
+      /* Force LSB bit since we always run thumb code.  */
+      if (regno == R_PC)
+	vrs->core.r[regno] |= 1;
+#endif
       return _UVRSR_OK;
 
     case _UVRSC_VFP:

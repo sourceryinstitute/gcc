@@ -1,6 +1,6 @@
 // Node handles for containers -*- C++ -*-
 
-// Copyright (C) 2016-2018 Free Software Foundation, Inc.
+// Copyright (C) 2016-2019 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -109,7 +109,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       {
 	using std::swap;
 	swap(_M_ptr, __nh._M_ptr);
-	if (_AllocTraits::propagate_on_container_swap
+	if (_AllocTraits::propagate_on_container_swap::value
 	    || !_M_alloc || !__nh._M_alloc)
 	  _M_alloc.swap(__nh._M_alloc);
 	else

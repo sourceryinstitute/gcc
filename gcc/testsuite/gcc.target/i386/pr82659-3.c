@@ -1,5 +1,6 @@
 /* { dg-do compile } */
-/* { dg-options "-O2 -fcf-protection -mcet" } */
+/* { dg-require-alias "" } */
+/* { dg-options "-O2 -fcf-protection" } */
 /* { dg-final { scan-assembler-times {\mendbr} 2 } } */
 
 extern int x;

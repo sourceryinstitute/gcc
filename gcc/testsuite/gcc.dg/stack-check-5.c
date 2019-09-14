@@ -1,7 +1,7 @@
 /* { dg-do compile } */
 /* { dg-options "-O2 -fstack-clash-protection -fdump-rtl-pro_and_epilogue -fno-optimize-sibling-calls --param stack-clash-protection-probe-interval=12 --param stack-clash-protection-guard-size=12" } */
 /* { dg-require-effective-target supports_stack_clash_protection } */
-/* { dg-skip-if "" { *-*-* } { "-fstack-protector" } { "" } } */
+/* { dg-skip-if "" { *-*-* } { "-fstack-protector*" } { "" } } */
 
 
 /* Otherwise the S/390 back-end might save the stack pointer in f2 ()
@@ -66,7 +66,9 @@ f3 (void)
 /* { dg-final { scan-rtl-dump-times "Stack clash no frame pointer needed" 4 "pro_and_epilogue" { target { ! frame_pointer_for_non_leaf } } } } */
 /* { dg-final { scan-rtl-dump-times "Stack clash no frame pointer needed" 2 "pro_and_epilogue" { target { frame_pointer_for_non_leaf } } } } */
 /* { dg-final { scan-rtl-dump-times "Stack clash frame pointer needed" 2 "pro_and_epilogue" { target { frame_pointer_for_non_leaf } } } } */
-
+/* AArch64 won't require a probe here due to the allocation amount being less than 1KB.  */
+/* { dg-final { scan-rtl-dump-times "Stack clash no probe small stack adjustment in prologue" 3 "pro_and_epilogue" { target { aarch64*-*-* } } } } */
+/* { dg-final { scan-rtl-dump-times "Stack clash no probe no stack adjustment in prologue" 1 "pro_and_epilogue" { target { aarch64*-*-* } } } } */
 
 /* We have selected the size of the array in f2/f3 to be large enough
    to not live in the red zone on targets that support it.

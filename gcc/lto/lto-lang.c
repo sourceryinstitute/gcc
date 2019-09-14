@@ -1,5 +1,5 @@
 /* Language-dependent hooks for LTO.
-   Copyright (C) 2009-2018 Free Software Foundation, Inc.
+   Copyright (C) 2009-2019 Free Software Foundation, Inc.
    Contributed by CodeSourcery, Inc.
 
 This file is part of GCC.
@@ -34,8 +34,12 @@ along with GCC; see the file COPYING3.  If not see
 #include "debug.h"
 #include "lto-tree.h"
 #include "lto.h"
+#include "lto-common.h"
 #include "stringpool.h"
 #include "attribs.h"
+
+/* LTO specific dumps.  */
+int lto_link_dump_id, decl_merge_dump_id, partition_dump_id;
 
 static tree handle_noreturn_attribute (tree *, tree, tree, int, bool *);
 static tree handle_leaf_attribute (tree *, tree, tree, int, bool *);
@@ -300,8 +304,7 @@ handle_const_attribute (tree *node, tree ARG_UNUSED (name),
 			tree ARG_UNUSED (args), int ARG_UNUSED (flags),
 			bool * ARG_UNUSED (no_add_attrs))
 {
-  if (TREE_CODE (*node) != FUNCTION_DECL
-      || !DECL_BUILT_IN (*node))
+  if (!fndecl_built_in_p (*node))
     inform (UNKNOWN_LOCATION, "%s:%s: %E: %E", __FILE__, __func__, *node, name);
 
   tree type = TREE_TYPE (*node);
@@ -786,12 +789,6 @@ static GTY(()) tree registered_builtin_types;
 
 /* Language hooks.  */
 
-static unsigned int
-lto_option_lang_mask (void)
-{
-  return CL_LTO;
-}
-
 static bool
 lto_complain_wrong_lang_p (const struct cl_option *option ATTRIBUTE_UNUSED)
 {
@@ -824,7 +821,8 @@ lto_init_options_struct (struct gcc_options *opts)
 const char *resolution_file_name;
 static bool
 lto_handle_option (size_t scode, const char *arg,
-		   int value ATTRIBUTE_UNUSED, int kind ATTRIBUTE_UNUSED,
+		   HOST_WIDE_INT value ATTRIBUTE_UNUSED,
+		   int kind ATTRIBUTE_UNUSED,
 		   location_t loc ATTRIBUTE_UNUSED,
 		   const struct cl_option_handlers *handlers ATTRIBUTE_UNUSED)
 {
@@ -861,7 +859,7 @@ lto_post_options (const char **pfilename ATTRIBUTE_UNUSED)
 {
   /* -fltrans and -fwpa are mutually exclusive.  Check for that here.  */
   if (flag_wpa && flag_ltrans)
-    error ("-fwpa and -fltrans are mutually exclusive");
+    error ("%<-fwpa%> and %<-fltrans%> are mutually exclusive");
 
   if (flag_ltrans)
     {
@@ -879,8 +877,29 @@ lto_post_options (const char **pfilename ATTRIBUTE_UNUSED)
   switch (flag_lto_linker_output)
     {
     case LTO_LINKER_OUTPUT_REL: /* .o: incremental link producing LTO IL  */
+      /* Configure compiler same way as normal frontend would do with -flto:
+	 this way we read the trees (declarations & types), symbol table,
+	 optimization summaries and link them. Subsequently we output new LTO
+	 file.  */
+      flag_lto = "";
+      flag_incremental_link = INCREMENTAL_LINK_LTO;
       flag_whole_program = 0;
-      flag_incremental_link = 1;
+      flag_wpa = 0;
+      flag_generate_lto = 1;
+      /* It would be cool to produce .o file directly, but our current
+	 simple objects does not contain the lto symbol markers.  Go the slow
+	 way through the asm file.  */
+      lang_hooks.lto.begin_section = lhd_begin_section;
+      lang_hooks.lto.append_data = lhd_append_data;
+      lang_hooks.lto.end_section = lhd_end_section;
+      if (flag_ltrans)
+	error ("%<-flinker-output=rel%> and %<-fltrans%> are mutually "
+	       "exclussive");
+      break;
+
+    case LTO_LINKER_OUTPUT_NOLTOREL: /* .o: incremental link producing asm  */
+      flag_whole_program = 0;
+      flag_incremental_link = INCREMENTAL_LINK_NOLTO;
       break;
 
     case LTO_LINKER_OUTPUT_DYN: /* .so: PID library */
@@ -908,7 +927,8 @@ lto_post_options (const char **pfilename ATTRIBUTE_UNUSED)
 
   /* Excess precision other than "fast" requires front-end
      support.  */
-  flag_excess_precision_cmdline = EXCESS_PRECISION_FAST;
+  if (flag_excess_precision == EXCESS_PRECISION_DEFAULT)
+    flag_excess_precision = EXCESS_PRECISION_FAST;
 
   /* When partitioning, we can tear appart STRING_CSTs uses from the same
      TU into multiple partitions.  Without constant merging the constants
@@ -1240,10 +1260,12 @@ lto_build_c_type_nodes (void)
       for (i = 0; i < NUM_INT_N_ENTS; i++)
 	if (int_n_enabled_p[i])
 	  {
-	    char name[50];
+	    char name[50], altname[50];
 	    sprintf (name, "__int%d unsigned", int_n_data[i].bitsize);
+	    sprintf (altname, "__int%d__ unsigned", int_n_data[i].bitsize);
 
-	    if (strcmp (name, SIZE_TYPE) == 0)
+	    if (strcmp (name, SIZE_TYPE) == 0
+		|| strcmp (altname, SIZE_TYPE) == 0)
 	      {
 		intmax_type_node = int_n_trees[i].signed_type;
 		uintmax_type_node = int_n_trees[i].unsigned_type;
@@ -1269,7 +1291,8 @@ lto_init (void)
   in_lto_p = true;
 
   /* We need to generate LTO if running in WPA mode.  */
-  flag_generate_lto = (flag_wpa != NULL);
+  flag_generate_lto = (flag_incremental_link == INCREMENTAL_LINK_LTO
+		       || flag_wpa != NULL);
 
   /* Create the basic integer types.  */
   build_common_tree_nodes (flag_signed_char);
@@ -1354,6 +1377,23 @@ lto_init (void)
   return true;
 }
 
+/* Register c++-specific dumps.  */
+
+void
+lto_register_dumps (gcc::dump_manager *dumps)
+{
+  lto_link_dump_id = dumps->dump_register
+    (".lto-link", "ipa-lto-link", "ipa-lto-link",
+     DK_ipa, OPTGROUP_NONE, false);
+  decl_merge_dump_id = dumps->dump_register
+    (".lto-decl-merge", "ipa-lto-decl-merge", "ipa-lto-decl-merge",
+     DK_ipa, OPTGROUP_NONE, false);
+  partition_dump_id = dumps->dump_register
+    (".lto-partition", "ipa-lto-partition", "ipa-lto-partition",
+     DK_ipa, OPTGROUP_NONE, false);
+}
+
+
 /* Initialize tree structures required by the LTO front end.  */
 
 static void lto_init_ts (void)
@@ -1369,6 +1409,8 @@ static void lto_init_ts (void)
 #define LANG_HOOKS_COMPLAIN_WRONG_LANG_P lto_complain_wrong_lang_p
 #undef LANG_HOOKS_INIT_OPTIONS_STRUCT
 #define LANG_HOOKS_INIT_OPTIONS_STRUCT lto_init_options_struct
+#undef LANG_HOOKS_REGISTER_DUMPS
+#define LANG_HOOKS_REGISTER_DUMPS lto_register_dumps
 #undef LANG_HOOKS_HANDLE_OPTION
 #define LANG_HOOKS_HANDLE_OPTION lto_handle_option
 #undef LANG_HOOKS_POST_OPTIONS

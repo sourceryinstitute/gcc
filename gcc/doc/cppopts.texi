@@ -1,4 +1,4 @@
-@c Copyright (C) 1999-2018 Free Software Foundation, Inc.
+@c Copyright (C) 1999-2019 Free Software Foundation, Inc.
 @c This is part of the CPP and GCC manuals.
 @c For copying conditions, see the file gcc.texi.
 
@@ -200,7 +200,7 @@ If @option{-MD} is used in conjunction with @option{-E}, any
 is understood to specify a target object file.
 
 Since @option{-E} is not implied, @option{-MD} can be used to generate
-a dependency output file as a side-effect of the compilation process.
+a dependency output file as a side effect of the compilation process.
 
 @item -MMD
 @opindex MMD
@@ -260,6 +260,10 @@ enabled by default for C99 (and later C standard versions) and C++.
 @item -fno-canonical-system-headers
 @opindex fno-canonical-system-headers
 When preprocessing, do not shorten system header paths with canonicalization.
+
+@item -fmax-include-depth=@var{depth}
+@opindex fmax-include-depth
+Set the maximum depth of the nested #include. The default is 200. 
 
 @item -ftabstop=@var{width}
 @opindex ftabstop
@@ -403,7 +407,7 @@ Do not discard comments, including during macro expansion.  This is
 like @option{-C}, except that comments contained within macros are
 also passed through to the output file where the macro is expanded.
 
-In addition to the side-effects of the @option{-C} option, the
+In addition to the side effects of the @option{-C} option, the
 @option{-CC} option causes all C++-style comments inside a macro
 to be converted to C-style comments.  This is to prevent later use
 of that macro from inadvertently commenting out the remainder of

@@ -33,7 +33,7 @@ func FFICallbackGo(results unsafe.Pointer, params unsafe.Pointer, impl *makeFunc
 	ap := params
 	for _, rt := range ftyp.in {
 		p := unsafe_New(rt)
-		memmove(p, *(*unsafe.Pointer)(ap), rt.size)
+		typedmemmove(rt, p, *(*unsafe.Pointer)(ap))
 		v := Value{rt, p, flag(rt.Kind()) | flagIndir}
 		in = append(in, v)
 		ap = (unsafe.Pointer)(uintptr(ap) + ptrSize)
@@ -44,11 +44,6 @@ func FFICallbackGo(results unsafe.Pointer, params unsafe.Pointer, impl *makeFunc
 	off := uintptr(0)
 	for i, typ := range ftyp.out {
 		v := out[i]
-		if v.typ != typ {
-			panic("reflect: function created by MakeFunc using " + funcName(impl.fn) +
-				" returned wrong type: have " +
-				out[i].typ.String() + " for " + typ.String())
-		}
 		if v.flag&flagRO != 0 {
 			panic("reflect: function created by MakeFunc using " + funcName(impl.fn) +
 				" returned value obtained from unexported field")
@@ -56,10 +51,16 @@ func FFICallbackGo(results unsafe.Pointer, params unsafe.Pointer, impl *makeFunc
 
 		off = align(off, uintptr(typ.fieldAlign))
 		addr := unsafe.Pointer(uintptr(results) + off)
+
+		// Convert v to type typ if v is assignable to a variable
+		// of type t in the language spec.
+		// See issue 28761.
+		v = v.assignTo("reflect.MakeFunc", typ, addr)
+
 		if v.flag&flagIndir == 0 && (v.kind() == Ptr || v.kind() == UnsafePointer) {
 			*(*unsafe.Pointer)(addr) = v.ptr
 		} else {
-			memmove(addr, v.ptr, typ.size)
+			typedmemmove(typ, addr, v.ptr)
 		}
 		off += typ.size
 	}

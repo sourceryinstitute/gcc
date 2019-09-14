@@ -479,17 +479,17 @@ Attribute Img
 =============
 .. index:: Img
 
-The ``Img`` attribute differs from ``Image`` in that it is applied
-directly to an object, and yields the same result as
-``Image`` for the subtype of the object.  This is convenient for
-debugging:
+The ``Img`` attribute differs from ``Image`` in that, while both can be
+applied directly to an object, ``Img`` cannot be applied to types.
+
+Example usage of the attribute:
 
 .. code-block:: ada
 
   Put_Line ("X = " & X'Img);
 
 
-has the same meaning as the more verbose:
+which has the same meaning as the more verbose:
 
 .. code-block:: ada
 
@@ -967,8 +967,8 @@ of the use of this feature:
      --  the former is used.
 
 
-Other properties are as for standard representation attribute ``Bit_Order``,
-as defined by Ada RM 13.5.3(4). The default is ``System.Default_Bit_Order``.
+Other properties are as for the standard representation attribute ``Bit_Order``
+defined by Ada RM 13.5.3(4). The default is ``System.Default_Bit_Order``.
 
 For a record type ``T``, if ``T'Scalar_Storage_Order`` is
 specified explicitly, it shall be equal to ``T'Bit_Order``. Note:
@@ -978,8 +978,8 @@ specified explicitly and set to the same value.
 
 Derived types inherit an explicitly set scalar storage order from their parent
 types. This may be overridden for the derived type by giving an explicit scalar
-storage order for the derived type. For a record extension, the derived type
-must have the same scalar storage order as the parent type.
+storage order for it. However, for a record extension, the derived type must
+have the same scalar storage order as the parent type.
 
 A component of a record type that is itself a record or an array and that does
 not start and end on a byte boundary must have have the same scalar storage
@@ -1018,14 +1018,17 @@ inheritance in the case of a derived type), then the default is normally
 the native ordering of the target, but this default can be overridden using
 pragma ``Default_Scalar_Storage_Order``.
 
-Note that if a component of ``T`` is itself of a record or array type,
-the specfied ``Scalar_Storage_Order`` does *not* apply to that nested type:
-an explicit attribute definition clause must be provided for the component
-type as well if desired.
+If a component of ``T`` is itself of a record or array type, the specfied
+``Scalar_Storage_Order`` does *not* apply to that nested type: an explicit
+attribute definition clause must be provided for the component type as well
+if desired.
 
 Note that the scalar storage order only affects the in-memory data
 representation. It has no effect on the representation used by stream
 attributes.
+
+Note that debuggers may be unable to display the correct value of scalar
+components of a type for which the opposite storage order is specified.
 
 .. _Attribute_Simple_Storage_Pool:
 
@@ -1534,32 +1537,31 @@ Attribute Valid_Scalars
 =======================
 .. index:: Valid_Scalars
 
-The ``'Valid_Scalars`` attribute is intended to make it easier to
-check the validity of scalar subcomponents of composite objects. It
-is defined for any prefix ``X`` that denotes an object.
-The value of this attribute is of the predefined type Boolean.
-``X'Valid_Scalars`` yields True if and only if evaluation of
-``P'Valid`` yields True for every scalar part P of X or if X has
-no scalar parts. It is not specified in what order the scalar parts
-are checked, nor whether any more are checked after any one of them
-is determined to be invalid. If the prefix ``X`` is of a class-wide
-type ``T'Class`` (where ``T`` is the associated specific type),
-or if the prefix ``X`` is of a specific tagged type ``T``, then
-only the scalar parts of components of ``T`` are traversed; in other
-words, components of extensions of ``T`` are not traversed even if
-``T'Class (X)'Tag /= T'Tag`` . The compiler will issue a warning if it can
-be determined at compile time that the prefix of the attribute has no
-scalar parts (e.g., if the prefix is of an access type, an interface type,
-an undiscriminated task type, or an undiscriminated protected type).
+The ``'Valid_Scalars`` attribute is intended to make it easier to check the
+validity of scalar subcomponents of composite objects. The attribute is defined
+for any prefix ``P`` which denotes an object. Prefix ``P`` can be any type
+except for tagged private or ``Unchecked_Union`` types. The value of the
+attribute is of type ``Boolean``.
 
-For scalar types, ``Valid_Scalars`` is equivalent to ``Valid``. The use
-of this attribute is not permitted for ``Unchecked_Union`` types for which
-in general it is not possible to determine the values of the discriminants.
+``P'Valid_Scalars`` yields ``True`` if and only if the evaluation of
+``C'Valid`` yields ``True`` for every scalar subcomponent ``C`` of ``P``, or if
+``P`` has no scalar subcomponents. Attribute ``'Valid_Scalars`` is equivalent
+to attribute ``'Valid`` for scalar types.
 
-Note: ``Valid_Scalars`` can generate a lot of code, especially in the case
-of a large variant record. If the attribute is called in many places in the
-same program applied to objects of the same type, it can reduce program size
-to write a function with a single use of the attribute, and then call that
+It is not specified in what order the subcomponents are checked, nor whether
+any more are checked after any one of them is determined to be invalid. If the
+prefix ``P`` is of a class-wide type ``T'Class`` (where ``T`` is the associated
+specific type), or if the prefix ``P`` is of a specific tagged type ``T``, then
+only the subcomponents of ``T`` are checked; in other words, components of
+extensions of ``T`` are not checked even if ``T'Class (P)'Tag /= T'Tag``.
+
+The compiler will issue a warning if it can be determined at compile time that
+the prefix of the attribute has no scalar subcomponents.
+
+Note: ``Valid_Scalars`` can generate a lot of code, especially in the case of
+a large variant record. If the attribute is called in many places in the same
+program applied to objects of the same type, it can reduce program size to
+write a function with a single use of the attribute, and then call that
 function from multiple places.
 
 Attribute VADS_Size

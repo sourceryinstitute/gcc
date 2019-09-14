@@ -1,6 +1,6 @@
 // Implementation of std::reference_wrapper -*- C++ -*-
 
-// Copyright (C) 2004-2018 Free Software Foundation, Inc.
+// Copyright (C) 2004-2019 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -43,6 +43,8 @@
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
+
+  /// @cond undocumented
 
   /**
    * Derives from @c unary_function or @c binary_function, or perhaps
@@ -175,6 +177,7 @@ _GLIBCXX_MEM_FN_TRAITS(&& noexcept, false_type, true_type)
     : _Weak_result_type_memfun<typename remove_cv<_Functor>::type>
     { };
 
+#if __cplusplus <= 201703L
   // Detect nested argument_type.
   template<typename _Tp, typename = __void_t<>>
     struct _Refwrap_base_arg1
@@ -279,26 +282,43 @@ _GLIBCXX_MEM_FN_TRAITS(&& noexcept, false_type, true_type)
     {
       using result_type = typename _Mem_fn_traits<_MemFunPtr>::__result_type;
     };
+#endif // ! C++20
+
+  /// @endcond
 
   /**
    *  @brief Primary class template for reference_wrapper.
    *  @ingroup functors
-   *  @{
    */
   template<typename _Tp>
     class reference_wrapper
+#if __cplusplus <= 201703L
+    // In C++20 std::reference_wrapper<T> allows T to be incomplete,
+    // so checking for nested types could result in ODR violations.
     : public _Reference_wrapper_base_memfun<typename remove_cv<_Tp>::type>
+#endif
     {
       _Tp* _M_data;
+
+      static _Tp* _S_fun(_Tp& __r) noexcept { return std::__addressof(__r); }
+      static void _S_fun(_Tp&&) = delete;
+
+      template<typename _Up, typename _Up2 = __remove_cvref_t<_Up>>
+	using __not_same
+	  = typename enable_if<!is_same<reference_wrapper, _Up2>::value>::type;
 
     public:
       typedef _Tp type;
 
-      reference_wrapper(_Tp& __indata) noexcept
-      : _M_data(std::__addressof(__indata))
-      { }
-
-      reference_wrapper(_Tp&&) = delete;
+      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+      // 2993. reference_wrapper<T> conversion from T&&
+      // 3041. Unnecessary decay in reference_wrapper
+      template<typename _Up, typename = __not_same<_Up>, typename
+		= decltype(reference_wrapper::_S_fun(std::declval<_Up>()))>
+	reference_wrapper(_Up&& __uref)
+	noexcept(noexcept(reference_wrapper::_S_fun(std::declval<_Up>())))
+	: _M_data(reference_wrapper::_S_fun(std::forward<_Up>(__uref)))
+	{ }
 
       reference_wrapper(const reference_wrapper&) = default;
 
@@ -316,10 +336,19 @@ _GLIBCXX_MEM_FN_TRAITS(&& noexcept, false_type, true_type)
 	typename result_of<_Tp&(_Args&&...)>::type
 	operator()(_Args&&... __args) const
 	{
+#if __cplusplus > 201703L
+	  static_assert(sizeof(type), "type must be complete");
+#endif
 	  return std::__invoke(get(), std::forward<_Args>(__args)...);
 	}
     };
 
+#if __cpp_deduction_guides
+  template<typename _Tp>
+    reference_wrapper(_Tp&) -> reference_wrapper<_Tp>;
+#endif
+
+  /// @relates reference_wrapper @{
 
   /// Denotes a reference should be taken to a variable.
   template<typename _Tp>
@@ -351,7 +380,7 @@ _GLIBCXX_MEM_FN_TRAITS(&& noexcept, false_type, true_type)
     cref(reference_wrapper<_Tp> __t) noexcept
     { return { __t.get() }; }
 
-  // @} group functors
+  // @}
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std

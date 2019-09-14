@@ -1,5 +1,5 @@
 /* Shrink-wrapping related optimizations.
-   Copyright (C) 1987-2018 Free Software Foundation, Inc.
+   Copyright (C) 1987-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -76,7 +76,7 @@ requires_stack_frame_p (rtx_insn *insn, HARD_REG_SET prologue_used,
     }
   if (hard_reg_set_intersect_p (hardregs, prologue_used))
     return true;
-  AND_COMPL_HARD_REG_SET (hardregs, call_used_reg_set);
+  hardregs &= ~call_used_or_fixed_regs;
   for (regno = 0; regno < FIRST_PSEUDO_REGISTER; regno++)
     if (TEST_HARD_REG_BIT (hardregs, regno)
 	&& df_regs_ever_live_p (regno))
@@ -151,13 +151,13 @@ live_edge_for_reg (basic_block bb, int regno, int end_regno)
 
 static bool
 move_insn_for_shrink_wrap (basic_block bb, rtx_insn *insn,
-			   const HARD_REG_SET uses,
-			   const HARD_REG_SET defs,
+			   const_hard_reg_set uses,
+			   const_hard_reg_set defs,
 			   bool *split_p,
 			   struct dead_debug_local *debug)
 {
   rtx set, src, dest;
-  bitmap live_out, live_in, bb_uses, bb_defs;
+  bitmap live_out, live_in, bb_uses = NULL, bb_defs = NULL;
   unsigned int i, dregno, end_dregno;
   unsigned int sregno = FIRST_PSEUDO_REGISTER;
   unsigned int end_sregno = FIRST_PSEUDO_REGISTER;
@@ -330,8 +330,11 @@ move_insn_for_shrink_wrap (basic_block bb, rtx_insn *insn,
       /* Check whether BB uses DEST or clobbers DEST.  We need to add
 	 INSN to BB if so.  Either way, DEST is no longer live on entry,
 	 except for any part that overlaps SRC (next loop).  */
-      bb_uses = &DF_LR_BB_INFO (bb)->use;
-      bb_defs = &DF_LR_BB_INFO (bb)->def;
+      if (!*split_p)
+	{
+	  bb_uses = &DF_LR_BB_INFO (bb)->use;
+	  bb_defs = &DF_LR_BB_INFO (bb)->def;
+	}
       if (df_live)
 	{
 	  for (i = dregno; i < end_dregno; i++)
@@ -411,7 +414,12 @@ move_insn_for_shrink_wrap (basic_block bb, rtx_insn *insn,
       dead_debug_insert_temp (debug, DF_REF_REGNO (def), insn,
 			      DEBUG_TEMP_BEFORE_WITH_VALUE);
 
-  emit_insn_after (PATTERN (insn), bb_note (bb));
+  rtx_insn *insn_copy = emit_insn_after (PATTERN (insn), bb_note (bb));
+  /* Update the LABEL_NUSES count on any referenced labels. The ideal
+     solution here would be to actually move the instruction instead
+     of copying/deleting it as this loses some notations on the
+     insn.  */
+  mark_jump_label (PATTERN (insn), insn_copy, 0);
   delete_insn (insn);
   return true;
 }
@@ -474,10 +482,10 @@ prepare_shrink_wrap (basic_block entry_block)
   dead_debug_local_finish (&debug, NULL);
 }
 
-/* Return whether basic block PRO can get the prologue.  It can not if it
+/* Return whether basic block PRO can get the prologue.  It cannot if it
    has incoming complex edges that need a prologue inserted (we make a new
    block for the prologue, so those edges would need to be redirected, which
-   does not work).  It also can not if there exist registers live on entry
+   does not work).  It also cannot if there exist registers live on entry
    to PRO that are clobbered by the prologue.  */
 
 static bool
@@ -679,9 +687,9 @@ try_shrink_wrapping (edge *entry_edge, rtx_insn *prologue_seq)
 	HARD_REG_SET this_used;
 	CLEAR_HARD_REG_SET (this_used);
 	note_uses (&PATTERN (insn), record_hard_reg_uses, &this_used);
-	AND_COMPL_HARD_REG_SET (this_used, prologue_clobbered);
-	IOR_HARD_REG_SET (prologue_used, this_used);
-	note_stores (PATTERN (insn), record_hard_reg_sets, &prologue_clobbered);
+	this_used &= ~prologue_clobbered;
+	prologue_used |= this_used;
+	note_stores (insn, record_hard_reg_sets, &prologue_clobbered);
       }
   CLEAR_HARD_REG_BIT (prologue_clobbered, STACK_POINTER_REGNUM);
   if (frame_pointer_needed)
@@ -1250,8 +1258,9 @@ place_prologue_for_one_component (unsigned int which, basic_block head)
 /* Set HAS_COMPONENTS in every block to the maximum it can be set to without
    setting it on any path from entry to exit where it was not already set
    somewhere (or, for blocks that have no path to the exit, consider only
-   paths from the entry to the block itself).  */
-static void
+   paths from the entry to the block itself).  Return whether any changes
+   were made to some HAS_COMPONENTS.  */
+static bool
 spread_components (sbitmap components)
 {
   basic_block entry_block = ENTRY_BLOCK_PTR_FOR_FN (cfun);
@@ -1374,12 +1383,19 @@ spread_components (sbitmap components)
 
   /* Finally, mark everything not not needed both forwards and backwards.  */
 
+  bool did_changes = false;
+
   FOR_EACH_BB_FN (bb, cfun)
     {
+      bitmap_copy (old, SW (bb)->has_components);
+
       bitmap_and (SW (bb)->head_components, SW (bb)->head_components,
 		  SW (bb)->tail_components);
       bitmap_and_compl (SW (bb)->has_components, components,
 			SW (bb)->head_components);
+
+      if (!did_changes && !bitmap_equal_p (old, SW (bb)->has_components))
+	did_changes = true;
     }
 
   FOR_ALL_BB_FN (bb, cfun)
@@ -1391,6 +1407,8 @@ spread_components (sbitmap components)
 	  fprintf (dump_file, "\n");
 	}
     }
+
+  return did_changes;
 }
 
 /* If we cannot handle placing some component's prologues or epilogues where
@@ -1794,7 +1812,16 @@ try_shrink_wrapping_separate (basic_block first_bb)
   EXECUTE_IF_SET_IN_BITMAP (components, 0, j, sbi)
     place_prologue_for_one_component (j, first_bb);
 
-  spread_components (components);
+  /* Try to minimize the number of saves and restores.  Do this as long as
+     it changes anything.  This does not iterate more than a few times.  */
+  int spread_times = 0;
+  while (spread_components (components))
+    {
+      spread_times++;
+
+      if (dump_file)
+	fprintf (dump_file, "Now spread %d times.\n", spread_times);
+    }
 
   disqualify_problematic_components (components);
 

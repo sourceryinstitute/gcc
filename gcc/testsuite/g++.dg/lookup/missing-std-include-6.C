@@ -11,15 +11,6 @@ void test_make_shared ()
   // { dg-error "expected primary-expression before '\\)' token" "" { target *-*-* } .-3 }
 }
 
-template<class T>
-void test_make_unique ()
-{
-  auto p = std::make_unique<T>(); // { dg-error "'make_unique' is not a member of 'std'" }
-  // { dg-message "'#include <memory>'" "" { target *-*-* } .-1 }
-  // { dg-error "expected primary-expression before '>' token" "" { target *-*-* } .-2 }
-  // { dg-error "expected primary-expression before '\\)' token" "" { target *-*-* } .-3 }
-}
-
 std::shared_ptr<int> test_shared_ptr; // { dg-error "'shared_ptr' in namespace 'std' does not name a template type" }
 // { dg-message "'#include <memory>'" "" { target *-*-* } .-1 }
 
@@ -59,4 +50,17 @@ void test_move(T&& arg)
   std::move<T>(arg); // { dg-error "'move' is not a member of 'std'" }
   // { dg-message "'#include <utility>'" "" { target *-*-* } .-1 }
   // { dg-error "expected primary-expression before '>' token" "" { target *-*-* } .-2 }
+}
+
+void test_array ()
+{
+  std::array a; // { dg-error ".array. is not a member of .std." }
+  // { dg-message ".std::array. is defined in header .<array>.; did you forget to .#include <array>.?" "" { target *-*-* } .-1 }
+}
+
+void test_tuple ()
+{
+  std::tuple<int,float> p; // { dg-error ".tuple. is not a member of .std." }
+  // { dg-message ".std::tuple. is defined in header .<tuple>.; did you forget to .#include <tuple>.?" "" { target *-*-* } .-1 }
+  // { dg-error "expected primary-expression before .int." "" { target *-*-* } .-2 }
 }

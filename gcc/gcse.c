@@ -1,5 +1,5 @@
 /* Partial redundancy elimination / Hoisting for RTL.
-   Copyright (C) 1997-2018 Free Software Foundation, Inc.
+   Copyright (C) 1997-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -1049,7 +1049,7 @@ load_killed_in_block_p (const_basic_block bb, int uid_limit, const_rtx x,
 	 note_stores to examine each hunk of memory that is modified.  */
       mci.mem = x;
       mci.conflict = false;
-      note_stores (PATTERN (setter), mems_conflict_for_gcse_p, &mci);
+      note_stores (setter, mems_conflict_for_gcse_p, &mci);
       if (mci.conflict)
 	return 1;
     }
@@ -1532,11 +1532,12 @@ compute_hash_table_work (struct gcse_hash_table_d *table)
 					      0, regno, hrsi)
 		record_last_reg_set_info (insn, regno);
 
-	      if (! RTL_CONST_OR_PURE_CALL_P (insn))
+	      if (! RTL_CONST_OR_PURE_CALL_P (insn)
+		  || RTL_LOOPING_CONST_OR_PURE_CALL_P (insn))
 		record_last_mem_set_info (insn);
 	    }
 
-	  note_stores (PATTERN (insn), record_last_set_info, insn);
+	  note_stores (insn, record_last_set_info, insn);
 	}
 
       /* The next pass builds the hash table.  */
@@ -1963,14 +1964,11 @@ pre_expr_reaches_here_p (basic_block occr_bb, struct gcse_expr *expr, basic_bloc
   return rval;
 }
 
-/* Generate RTL to copy an EXPR to its `reaching_reg' and return it.  */
+/* Generate RTL to copy an EXP to REG and return it.  */
 
-static rtx_insn *
-process_insert_insn (struct gcse_expr *expr)
+rtx_insn *
+prepare_copy_insn (rtx reg, rtx exp)
 {
-  rtx reg = expr->reaching_reg;
-  /* Copy the expression to make sure we don't have any sharing issues.  */
-  rtx exp = copy_rtx (expr->expr);
   rtx_insn *pat;
 
   start_sequence ();
@@ -1994,6 +1992,18 @@ process_insert_insn (struct gcse_expr *expr)
   end_sequence ();
 
   return pat;
+}
+
+/* Generate RTL to copy an EXPR to its `reaching_reg' and return it.  */
+
+static rtx_insn *
+process_insert_insn (struct gcse_expr *expr)
+{
+  rtx reg = expr->reaching_reg;
+  /* Copy the expression to make sure we don't have any sharing issues.  */
+  rtx exp = copy_rtx (expr->expr);
+
+  return prepare_copy_insn (reg, exp);
 }
 
 /* Add EXPR to the end of basic block BB.
@@ -2405,7 +2415,7 @@ single_set_gcse (rtx_insn *insn)
 
   s.insn = insn;
   s.nsets = 0;
-  note_stores (pattern, record_set_data, &s);
+  note_pattern_stores (pattern, record_set_data, &s);
 
   /* Considered invariant insns have exactly one set.  */
   gcc_assert (s.nsets == 1);
@@ -3994,7 +4004,8 @@ gcse_or_cprop_is_too_expensive (const char *pass)
   if (memory_request > MAX_GCSE_MEMORY)
     {
       warning (OPT_Wdisabled_optimization,
-	       "%s: %d basic blocks and %d registers; increase --param max-gcse-memory above %d",
+	       "%s: %d basic blocks and %d registers; "
+	       "increase %<--param max-gcse-memory%> above %d",
 	       pass, n_basic_blocks_for_fn (cfun), max_reg_num (),
 	       memory_request);
 

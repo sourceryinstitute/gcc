@@ -1,5 +1,5 @@
 /* Convert function calls to rtl insns, for GNU C compiler.
-   Copyright (C) 1989-2018 Free Software Foundation, Inc.
+   Copyright (C) 1989-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -47,14 +47,14 @@ along with GCC; see the file COPYING3.  If not see
 #include "except.h"
 #include "dbgcnt.h"
 #include "rtl-iter.h"
-#include "tree-chkp.h"
 #include "tree-vrp.h"
 #include "tree-ssanames.h"
-#include "rtl-chkp.h"
+#include "tree-ssa-strlen.h"
 #include "intl.h"
 #include "stringpool.h"
 #include "attribs.h"
 #include "builtins.h"
+#include "gimple-fold.h"
 
 /* Like PREFERRED_STACK_BOUNDARY but in units of bytes, not bits.  */
 #define STACK_BYTES (PREFERRED_STACK_BOUNDARY / BITS_PER_UNIT)
@@ -82,15 +82,6 @@ struct arg_data
   /* If REG is a PARALLEL, this is a copy of VALUE pulled into the correct
      form for emit_group_move.  */
   rtx parallel_value;
-  /* If value is passed in neither reg nor stack, this field holds a number
-     of a special slot to be used.  */
-  rtx special_slot;
-  /* For pointer bounds hold an index of parm bounds are bound to.  -1 if
-     there is no such pointer.  */
-  int pointer_arg;
-  /* If pointer_arg refers a structure, then pointer_offset holds an offset
-     of a pointer in this structure.  */
-  int pointer_offset;
   /* If REG was promoted from the actual mode of the argument expression,
      indicates whether the promotion is sign- or zero-extended.  */
   int unsignedp;
@@ -153,7 +144,6 @@ static unsigned HOST_WIDE_INT stored_args_watermark;
 static int stack_arg_under_construction;
 
 static void precompute_register_parameters (int, struct arg_data *, int *);
-static void store_bounds (struct arg_data *, struct arg_data *);
 static int store_one_arg (struct arg_data *, rtx, int, int, int);
 static void store_unaligned_arguments_into_pseudos (struct arg_data *, int);
 static int finalize_must_preallocate (int, int, struct arg_data *,
@@ -356,7 +346,8 @@ prepare_call_address (tree fndecl_or_type, rtx funexp, rtx static_chain_value,
    It is zero if this call doesn't want a structure value.
 
    NEXT_ARG_REG is the rtx that results from executing
-     targetm.calls.function_arg (&args_so_far, VOIDmode, void_type_node, true)
+     targetm.calls.function_arg (&args_so_far,
+				 function_arg_info::end_marker ());
    just after all the args have had their registers assigned.
    This could be whatever you like, but normally it is the first
    arg-register beyond those used for args in this call,
@@ -487,10 +478,6 @@ emit_call_1 (rtx funexp, tree fntree ATTRIBUTE_UNUSED, tree fndecl ATTRIBUTE_UNU
       && MEM_EXPR (funmem) != NULL_TREE)
     set_mem_expr (XEXP (call, 0), MEM_EXPR (funmem));
 
-  /* Mark instrumented calls.  */
-  if (call && fntree)
-    CALL_EXPR_WITH_BOUNDS_P (call) = CALL_WITH_BOUNDS_P (fntree);
-
   /* Put the register usage information there.  */
   add_function_usage_to (call_insn, call_fusage);
 
@@ -596,12 +583,6 @@ static int
 special_function_p (const_tree fndecl, int flags)
 {
   tree name_decl = DECL_NAME (fndecl);
-
-  /* For instrumentation clones we want to derive flags
-     from the original name.  */
-  if (cgraph_node::get (fndecl)
-      && cgraph_node::get (fndecl)->instrumentation_clone)
-    name_decl = DECL_NAME (cgraph_node::get (fndecl)->orig_decl);
 
   if (fndecl && name_decl
       && IDENTIFIER_LENGTH (name_decl) <= 11
@@ -726,7 +707,7 @@ gimple_alloca_call_p (const gimple *stmt)
     return false;
 
   fndecl = gimple_call_fndecl (stmt);
-  if (fndecl && DECL_BUILT_IN_CLASS (fndecl) == BUILT_IN_NORMAL)
+  if (fndecl && fndecl_built_in_p (fndecl, BUILT_IN_NORMAL))
     switch (DECL_FUNCTION_CODE (fndecl))
       {
       CASE_BUILT_IN_ALLOCA:
@@ -917,13 +898,12 @@ call_expr_flags (const_tree t)
   return flags;
 }
 
-/* Return true if TYPE should be passed by invisible reference.  */
+/* Return true if ARG should be passed by invisible reference.  */
 
 bool
-pass_by_reference (CUMULATIVE_ARGS *ca, machine_mode mode,
-		   tree type, bool named_arg)
+pass_by_reference (CUMULATIVE_ARGS *ca, function_arg_info arg)
 {
-  if (type)
+  if (tree type = arg.type)
     {
       /* If this type contains non-trivial constructors, then it is
 	 forbidden for the middle-end to create any new copies.  */
@@ -938,26 +918,49 @@ pass_by_reference (CUMULATIVE_ARGS *ca, machine_mode mode,
 	 member, use the type and mode of that member.  */
       if (TREE_CODE (type) == RECORD_TYPE && TYPE_TRANSPARENT_AGGR (type))
 	{
-	  type = TREE_TYPE (first_field (type));
-	  mode = TYPE_MODE (type);
+	  arg.type = TREE_TYPE (first_field (type));
+	  arg.mode = TYPE_MODE (arg.type);
 	}
     }
 
-  return targetm.calls.pass_by_reference (pack_cumulative_args (ca), mode,
-					  type, named_arg);
+  return targetm.calls.pass_by_reference (pack_cumulative_args (ca), arg);
 }
 
-/* Return true if TYPE, which is passed by reference, should be callee
+/* Return true if TYPE should be passed by reference when passed to
+   the "..." arguments of a function.  */
+
+bool
+pass_va_arg_by_reference (tree type)
+{
+  return pass_by_reference (NULL, function_arg_info (type, /*named=*/false));
+}
+
+/* Decide whether ARG, which occurs in the state described by CA,
+   should be passed by reference.  Return true if so and update
+   ARG accordingly.  */
+
+bool
+apply_pass_by_reference_rules (CUMULATIVE_ARGS *ca, function_arg_info &arg)
+{
+  if (pass_by_reference (ca, arg))
+    {
+      arg.type = build_pointer_type (arg.type);
+      arg.mode = TYPE_MODE (arg.type);
+      arg.pass_by_reference = true;
+      return true;
+    }
+  return false;
+}
+
+/* Return true if ARG, which is passed by reference, should be callee
    copied instead of caller copied.  */
 
 bool
-reference_callee_copied (CUMULATIVE_ARGS *ca, machine_mode mode,
-			 tree type, bool named_arg)
+reference_callee_copied (CUMULATIVE_ARGS *ca, const function_arg_info &arg)
 {
-  if (type && TREE_ADDRESSABLE (type))
+  if (arg.type && TREE_ADDRESSABLE (arg.type))
     return false;
-  return targetm.calls.callee_copies (pack_cumulative_args (ca), mode, type,
-				      named_arg);
+  return targetm.calls.callee_copies (pack_cumulative_args (ca), arg);
 }
 
 
@@ -1230,65 +1233,15 @@ static GTY(()) tree alloc_object_size_limit;
 static tree
 alloc_max_size (void)
 {
-  if (!alloc_object_size_limit)
-    {
-      alloc_object_size_limit = max_object_size ();
+  if (alloc_object_size_limit)
+    return alloc_object_size_limit;
 
-      if (warn_alloc_size_limit)
-	{
-	  char *end = NULL;
-	  errno = 0;
-	  unsigned HOST_WIDE_INT unit = 1;
-	  unsigned HOST_WIDE_INT limit
-	    = strtoull (warn_alloc_size_limit, &end, 10);
+  HOST_WIDE_INT limit = warn_alloc_size_limit;
+  if (limit == HOST_WIDE_INT_MAX)
+    limit = tree_to_shwi (TYPE_MAX_VALUE (ptrdiff_type_node));
 
-	  if (!errno)
-	    {
-	      if (end && *end)
-		{
-		  /* Numeric option arguments are at most INT_MAX.  Make it
-		     possible to specify a larger value by accepting common
-		     suffixes.  */
-		  if (!strcmp (end, "kB"))
-		    unit = 1000;
-		  else if (!strcasecmp (end, "KiB") || strcmp (end, "KB"))
-		    unit = 1024;
-		  else if (!strcmp (end, "MB"))
-		    unit = HOST_WIDE_INT_UC (1000) * 1000;
-		  else if (!strcasecmp (end, "MiB"))
-		    unit = HOST_WIDE_INT_UC (1024) * 1024;
-		  else if (!strcasecmp (end, "GB"))
-		    unit = HOST_WIDE_INT_UC (1000) * 1000 * 1000;
-		  else if (!strcasecmp (end, "GiB"))
-		    unit = HOST_WIDE_INT_UC (1024) * 1024 * 1024;
-		  else if (!strcasecmp (end, "TB"))
-		    unit = HOST_WIDE_INT_UC (1000) * 1000 * 1000 * 1000;
-		  else if (!strcasecmp (end, "TiB"))
-		    unit = HOST_WIDE_INT_UC (1024) * 1024 * 1024 * 1024;
-		  else if (!strcasecmp (end, "PB"))
-		    unit = HOST_WIDE_INT_UC (1000) * 1000 * 1000 * 1000 * 1000;
-		  else if (!strcasecmp (end, "PiB"))
-		    unit = HOST_WIDE_INT_UC (1024) * 1024 * 1024 * 1024 * 1024;
-		  else if (!strcasecmp (end, "EB"))
-		    unit = HOST_WIDE_INT_UC (1000) * 1000 * 1000 * 1000 * 1000
-			   * 1000;
-		  else if (!strcasecmp (end, "EiB"))
-		    unit = HOST_WIDE_INT_UC (1024) * 1024 * 1024 * 1024 * 1024
-			   * 1024;
-		  else
-		    unit = 0;
-		}
+  alloc_object_size_limit = build_int_cst (size_type_node, limit);
 
-	      if (unit)
-		{
-		  widest_int w = wi::mul (limit, unit);
-		  if (w < wi::to_widest (alloc_object_size_limit))
-		    alloc_object_size_limit
-		      = wide_int_to_tree (ptrdiff_type_node, w);
-		}
-	    }
-	}
-    }
   return alloc_object_size_limit;
 }
 
@@ -1316,10 +1269,10 @@ get_size_range (tree exp, tree range[2], bool allow_zero /* = false */)
   bool integral = INTEGRAL_TYPE_P (exptype);
 
   wide_int min, max;
-  enum value_range_type range_type;
+  enum value_range_kind range_type;
 
-  if (TREE_CODE (exp) == SSA_NAME && integral)
-    range_type = get_range_info (exp, &min, &max);
+  if (integral)
+    range_type = determine_value_range (exp, &min, &max);
   else
     range_type = VR_VARYING;
 
@@ -1403,9 +1356,10 @@ get_size_range (tree exp, tree range[2], bool allow_zero /* = false */)
 /* Diagnose a call EXP to function FN decorated with attribute alloc_size
    whose argument numbers given by IDX with values given by ARGS exceed
    the maximum object size or cause an unsigned oveflow (wrapping) when
-   multiplied.  When ARGS[0] is null the function does nothing.  ARGS[1]
-   may be null for functions like malloc, and non-null for those like
-   calloc that are decorated with a two-argument attribute alloc_size.  */
+   multiplied.  FN is null when EXP is a call via a function pointer.
+   When ARGS[0] is null the function does nothing.  ARGS[1] may be null
+   for functions like malloc, and non-null for those like calloc that
+   are decorated with a two-argument attribute alloc_size.  */
 
 void
 maybe_warn_alloc_args_overflow (tree fn, tree exp, tree args[2], int idx[2])
@@ -1418,6 +1372,7 @@ maybe_warn_alloc_args_overflow (tree fn, tree exp, tree args[2], int idx[2])
 
   location_t loc = EXPR_LOCATION (exp);
 
+  tree fntype = fn ? TREE_TYPE (fn) : TREE_TYPE (TREE_TYPE (exp));
   bool warned = false;
 
   /* Validate each argument individually.  */
@@ -1443,11 +1398,10 @@ maybe_warn_alloc_args_overflow (tree fn, tree exp, tree args[2], int idx[2])
 		 friends.
 		 Also avoid issuing the warning for calls to function named
 		 "alloca".  */
-	      if ((DECL_FUNCTION_CODE (fn) == BUILT_IN_ALLOCA
-		   && IDENTIFIER_LENGTH (DECL_NAME (fn)) != 6)
-		  || (DECL_FUNCTION_CODE (fn) != BUILT_IN_ALLOCA
-		      && !lookup_attribute ("returns_nonnull",
-					    TYPE_ATTRIBUTES (TREE_TYPE (fn)))))
+	      if (fn && fndecl_built_in_p (fn, BUILT_IN_ALLOCA)
+		  ? IDENTIFIER_LENGTH (DECL_NAME (fn)) != 6
+		  : !lookup_attribute ("returns_nonnull",
+				       TYPE_ATTRIBUTES (fntype)))
 		warned = warning_at (loc, OPT_Walloc_zero,
 				     "%Kargument %i value is zero",
 				     exp, idx[i] + 1);
@@ -1459,9 +1413,10 @@ maybe_warn_alloc_args_overflow (tree fn, tree exp, tree args[2], int idx[2])
 		 size overflow.  There's no good way to detect C++98 here
 		 so avoid diagnosing these calls for all C++ modes.  */
 	      if (i == 0
+		  && fn
 		  && !args[1]
 		  && lang_GNU_CXX ()
-		  && DECL_IS_OPERATOR_NEW (fn)
+		  && DECL_IS_OPERATOR_NEW_P (fn)
 		  && integer_all_onesp (args[i]))
 		continue;
 
@@ -1512,7 +1467,7 @@ maybe_warn_alloc_args_overflow (tree fn, tree exp, tree args[2], int idx[2])
       wide_int x = wi::to_wide (argrange[0][0], szprec);
       wide_int y = wi::to_wide (argrange[1][0], szprec);
 
-      bool vflow;
+      wi::overflow_type vflow;
       wide_int prod = wi::umul (x, y, &vflow);
 
       if (vflow)
@@ -1542,7 +1497,7 @@ maybe_warn_alloc_args_overflow (tree fn, tree exp, tree args[2], int idx[2])
 	}
     }
 
-  if (warned)
+  if (warned && fn)
     {
       location_t fnloc = DECL_SOURCE_LOCATION (fn);
 
@@ -1564,6 +1519,7 @@ tree
 get_attr_nonstring_decl (tree expr, tree *ref)
 {
   tree decl = expr;
+  tree var = NULL_TREE;
   if (TREE_CODE (decl) == SSA_NAME)
     {
       gimple *def = SSA_NAME_DEF_STMT (decl);
@@ -1576,18 +1532,30 @@ get_attr_nonstring_decl (tree expr, tree *ref)
 	      || code == VAR_DECL)
 	    decl = gimple_assign_rhs1 (def);
 	}
-      else if (tree var = SSA_NAME_VAR (decl))
-	decl = var;
+      else
+	var = SSA_NAME_VAR (decl);
     }
 
   if (TREE_CODE (decl) == ADDR_EXPR)
     decl = TREE_OPERAND (decl, 0);
 
+  /* To simplify calling code, store the referenced DECL regardless of
+     the attribute determined below, but avoid storing the SSA_NAME_VAR
+     obtained above (it's not useful for dataflow purposes).  */
   if (ref)
     *ref = decl;
 
-  if (TREE_CODE (decl) == COMPONENT_REF)
+  /* Use the SSA_NAME_VAR that was determined above to see if it's
+     declared nonstring.  Otherwise drill down into the referenced
+     DECL.  */
+  if (var)
+    decl = var;
+  else if (TREE_CODE (decl) == ARRAY_REF)
+    decl = TREE_OPERAND (decl, 0);
+  else if (TREE_CODE (decl) == COMPONENT_REF)
     decl = TREE_OPERAND (decl, 1);
+  else if (TREE_CODE (decl) == MEM_REF)
+    return get_attr_nonstring_decl (TREE_OPERAND (decl, 0), ref);
 
   if (DECL_P (decl)
       && lookup_attribute ("nonstring", DECL_ATTRIBUTES (decl)))
@@ -1602,39 +1570,80 @@ get_attr_nonstring_decl (tree expr, tree *ref)
 void
 maybe_warn_nonstring_arg (tree fndecl, tree exp)
 {
-  if (!fndecl || DECL_BUILT_IN_CLASS (fndecl) != BUILT_IN_NORMAL)
+  if (!fndecl || !fndecl_built_in_p (fndecl, BUILT_IN_NORMAL))
     return;
 
-  bool with_bounds = CALL_WITH_BOUNDS_P (exp);
+  if (TREE_NO_WARNING (exp) || !warn_stringop_overflow)
+    return;
 
+  /* Avoid clearly invalid calls (more checking done below).  */
   unsigned nargs = call_expr_nargs (exp);
+  if (!nargs)
+    return;
 
   /* The bound argument to a bounded string function like strncpy.  */
   tree bound = NULL_TREE;
 
+  /* The longest known or possible string argument to one of the comparison
+     functions.  If the length is less than the bound it is used instead.
+     Since the length is only used for warning and not for code generation
+     disable strict mode in the calls to get_range_strlen below.  */
+  tree maxlen = NULL_TREE;
+
   /* It's safe to call "bounded" string functions with a non-string
      argument since the functions provide an explicit bound for this
-     purpose.  */
-  switch (DECL_FUNCTION_CODE (fndecl))
+     purpose.  The exception is strncat where the bound may refer to
+     either the destination or the source.  */
+  int fncode = DECL_FUNCTION_CODE (fndecl);
+  switch (fncode)
     {
-    case BUILT_IN_STPNCPY:
-    case BUILT_IN_STPNCPY_CHK:
+    case BUILT_IN_STRCMP:
     case BUILT_IN_STRNCMP:
     case BUILT_IN_STRNCASECMP:
-    case BUILT_IN_STRNCPY:
-    case BUILT_IN_STRNCPY_CHK:
       {
-	unsigned argno = with_bounds ? 4 : 2;
-	if (argno < nargs)
-	  bound = CALL_EXPR_ARG (exp, argno);
-	break;
+	/* For these, if one argument refers to one or more of a set
+	   of string constants or arrays of known size, determine
+	   the range of their known or possible lengths and use it
+	   conservatively as the bound for the unbounded function,
+	   and to adjust the range of the bound of the bounded ones.  */
+	for (unsigned argno = 0;
+	     argno < MIN (nargs, 2)
+	       && !(maxlen && TREE_CODE (maxlen) == INTEGER_CST); argno++)
+	  {
+	    tree arg = CALL_EXPR_ARG (exp, argno);
+	    if (!get_attr_nonstring_decl (arg))
+	      {
+		c_strlen_data lendata = { };
+		get_range_strlen (arg, &lendata, /* eltsize = */ 1);
+		maxlen = lendata.maxbound;
+	      }
+	  }
       }
+      /* Fall through.  */
+
+    case BUILT_IN_STRNCAT:
+    case BUILT_IN_STPNCPY:
+    case BUILT_IN_STRNCPY:
+      if (nargs > 2)
+	bound = CALL_EXPR_ARG (exp, 2);
+      break;
 
     case BUILT_IN_STRNDUP:
+      if (nargs > 1)
+	bound = CALL_EXPR_ARG (exp, 1);
+      break;
+
+    case BUILT_IN_STRNLEN:
       {
-	unsigned argno = with_bounds ? 2 : 1;
-	if (argno < nargs)
-	  bound = CALL_EXPR_ARG (exp, argno);
+	tree arg = CALL_EXPR_ARG (exp, 0);
+	if (!get_attr_nonstring_decl (arg))
+	  {
+	    c_strlen_data lendata = { };
+	    get_range_strlen (arg, &lendata, /* eltsize = */ 1);
+	    maxlen = lendata.maxbound;
+	  }
+	if (nargs > 1)
+	  bound = CALL_EXPR_ARG (exp, 1);
 	break;
       }
 
@@ -1645,7 +1654,58 @@ maybe_warn_nonstring_arg (tree fndecl, tree exp)
   /* Determine the range of the bound argument (if specified).  */
   tree bndrng[2] = { NULL_TREE, NULL_TREE };
   if (bound)
-    get_size_range (bound, bndrng);
+    {
+      STRIP_NOPS (bound);
+      get_size_range (bound, bndrng);
+    }
+
+  location_t loc = EXPR_LOCATION (exp);
+
+  if (bndrng[0])
+    {
+      /* Diagnose excessive bound prior the adjustment below and
+	 regardless of attribute nonstring.  */
+      tree maxobjsize = max_object_size ();
+      if (tree_int_cst_lt (maxobjsize, bndrng[0]))
+	{
+	  if (tree_int_cst_equal (bndrng[0], bndrng[1]))
+	    warning_at (loc, OPT_Wstringop_overflow_,
+			"%K%qD specified bound %E "
+			"exceeds maximum object size %E",
+			exp, fndecl, bndrng[0], maxobjsize);
+	  else
+	    warning_at (loc, OPT_Wstringop_overflow_,
+			"%K%qD specified bound [%E, %E] "
+			"exceeds maximum object size %E",
+			exp, fndecl, bndrng[0], bndrng[1], maxobjsize);
+	  return;
+	}
+    }
+
+  if (maxlen && !integer_all_onesp (maxlen))
+    {
+      /* Add one for the nul.  */
+      maxlen = const_binop (PLUS_EXPR, TREE_TYPE (maxlen), maxlen,
+			    size_one_node);
+
+      if (!bndrng[0])
+	{
+	  /* Conservatively use the upper bound of the lengths for
+	     both the lower and the upper bound of the operation.  */
+	  bndrng[0] = maxlen;
+	  bndrng[1] = maxlen;
+	  bound = void_type_node;
+	}
+      else if (maxlen)
+	{
+	  /* Replace the bound on the operation with the upper bound
+	     of the length of the string if the latter is smaller.  */
+	  if (tree_int_cst_lt (maxlen, bndrng[0]))
+	    bndrng[0] = maxlen;
+	  else if (tree_int_cst_lt (maxlen, bndrng[1]))
+	    bndrng[1] = maxlen;
+	}
+    }
 
   /* Iterate over the built-in function's formal arguments and check
      each const char* against the actual argument.  If the actual
@@ -1687,30 +1747,97 @@ maybe_warn_nonstring_arg (tree fndecl, tree exp)
       if (!decl)
 	continue;
 
-      tree type = TREE_TYPE (decl);
-
+      /* The maximum number of array elements accessed.  */
       offset_int wibnd = 0;
-      if (bndrng[0])
+
+      if (argno && fncode == BUILT_IN_STRNCAT)
+	{
+	  /* See if the bound in strncat is derived from the length
+	     of the strlen of the destination (as it's expected to be).
+	     If so, reset BOUND and FNCODE to trigger a warning.  */
+	  tree dstarg = CALL_EXPR_ARG (exp, 0);
+	  if (is_strlen_related_p (dstarg, bound))
+	    {
+	      /* The bound applies to the destination, not to the source,
+		 so reset these to trigger a warning without mentioning
+		 the bound.  */
+	      bound = NULL;
+	      fncode = 0;
+	    }
+	  else if (bndrng[1])
+	    /* Use the upper bound of the range for strncat.  */
+	    wibnd = wi::to_offset (bndrng[1]);
+	}
+      else if (bndrng[0])
+	/* Use the lower bound of the range for functions other than
+	   strncat.  */
 	wibnd = wi::to_offset (bndrng[0]);
 
+      /* Determine the size of the argument array if it is one.  */
       offset_int asize = wibnd;
+      bool known_size = false;
+      tree type = TREE_TYPE (decl);
 
+      /* Determine the array size.  For arrays of unknown bound and
+	 pointers reset BOUND to trigger the appropriate warning.  */
       if (TREE_CODE (type) == ARRAY_TYPE)
-	if (tree arrbnd = TYPE_DOMAIN (type))
-	  {
-	    if ((arrbnd = TYPE_MAX_VALUE (arrbnd)))
-	      asize = wi::to_offset (arrbnd) + 1;
-	  }
+	{
+	  if (tree arrbnd = TYPE_DOMAIN (type))
+	    {
+	      if ((arrbnd = TYPE_MAX_VALUE (arrbnd)))
+		{
+		  asize = wi::to_offset (arrbnd) + 1;
+		  known_size = true;
+		}
+	    }
+	  else if (bound == void_type_node)
+	    bound = NULL_TREE;
+	}
+      else if (bound == void_type_node)
+	bound = NULL_TREE;
 
-      location_t loc = EXPR_LOCATION (exp);
+      /* In a call to strncat with a bound in a range whose lower but
+	 not upper bound is less than the array size, reset ASIZE to
+	 be the same as the bound and the other variable to trigger
+	 the apprpriate warning below.  */
+      if (fncode == BUILT_IN_STRNCAT
+	  && bndrng[0] != bndrng[1]
+	  && wi::ltu_p (wi::to_offset (bndrng[0]), asize)
+	  && (!known_size
+	      || wi::ltu_p (asize, wibnd)))
+	{
+	  asize = wibnd;
+	  bound = NULL_TREE;
+	  fncode = 0;
+	}
 
       bool warned = false;
 
+      auto_diagnostic_group d;
       if (wi::ltu_p (asize, wibnd))
-	warned = warning_at (loc, OPT_Wstringop_overflow_,
-			     "%qD argument %i declared attribute %<nonstring%> "
-			     "is smaller than the specified bound %E",
-			     fndecl, argno + 1, bndrng[0]);
+	{
+	  if (bndrng[0] == bndrng[1])
+	    warned = warning_at (loc, OPT_Wstringop_overflow_,
+				 "%qD argument %i declared attribute "
+				 "%<nonstring%> is smaller than the specified "
+				 "bound %wu",
+				 fndecl, argno + 1, wibnd.to_uhwi ());
+	  else if (wi::ltu_p (asize, wi::to_offset (bndrng[0])))
+	    warned = warning_at (loc, OPT_Wstringop_overflow_,
+				 "%qD argument %i declared attribute "
+				 "%<nonstring%> is smaller than "
+				 "the specified bound [%E, %E]",
+				 fndecl, argno + 1, bndrng[0], bndrng[1]);
+	  else
+	    warned = warning_at (loc, OPT_Wstringop_overflow_,
+				 "%qD argument %i declared attribute "
+				 "%<nonstring%> may be smaller than "
+				 "the specified bound [%E, %E]",
+				 fndecl, argno + 1, bndrng[0], bndrng[1]);
+	}
+      else if (fncode == BUILT_IN_STRNCAT)
+	; /* Avoid warning for calls to strncat() when the bound
+	     is equal to the size of the non-string argument.  */
       else if (!bound)
 	warned = warning_at (loc, OPT_Wstringop_overflow_,
 			     "%qD argument %i declared attribute %<nonstring%>",
@@ -1797,7 +1924,7 @@ initialize_argument_information (int num_actuals ATTRIBUTE_UNUSED,
 
   i = num_actuals - 1;
   {
-    int j = i, ptr_arg = -1;
+    int j = i;
     call_expr_arg_iterator iter;
     tree arg;
     bitmap slots = NULL;
@@ -1806,78 +1933,11 @@ initialize_argument_information (int num_actuals ATTRIBUTE_UNUSED,
       {
 	args[j].tree_value = struct_value_addr_value;
 	j--;
-
-	/* If we pass structure address then we need to
-	   create bounds for it.  Since created bounds is
-	   a call statement, we expand it right here to avoid
-	   fixing all other places where it may be expanded.  */
-	if (CALL_WITH_BOUNDS_P (exp))
-	  {
-	    args[j].value = gen_reg_rtx (targetm.chkp_bound_mode ());
-	    args[j].tree_value
-	      = chkp_make_bounds_for_struct_addr (struct_value_addr_value);
-	    expand_expr_real (args[j].tree_value, args[j].value, VOIDmode,
-			      EXPAND_NORMAL, 0, false);
-	    args[j].pointer_arg = j + 1;
-	    j--;
-	  }
       }
     argpos = 0;
     FOR_EACH_CALL_EXPR_ARG (arg, iter, exp)
       {
 	tree argtype = TREE_TYPE (arg);
-
-	/* Remember last param with pointer and associate it
-	   with following pointer bounds.  */
-	if (CALL_WITH_BOUNDS_P (exp)
-	    && chkp_type_has_pointer (argtype))
-	  {
-	    if (slots)
-	      BITMAP_FREE (slots);
-	    ptr_arg = j;
-	    if (!BOUNDED_TYPE_P (argtype))
-	      {
-		slots = BITMAP_ALLOC (NULL);
-		chkp_find_bound_slots (argtype, slots);
-	      }
-	  }
-	else if (CALL_WITH_BOUNDS_P (exp)
-		 && pass_by_reference (NULL, TYPE_MODE (argtype), argtype,
-				       argpos < n_named_args))
-	  {
-	    if (slots)
-	      BITMAP_FREE (slots);
-	    ptr_arg = j;
-	  }
-	else if (POINTER_BOUNDS_TYPE_P (argtype))
-	  {
-	    /* We expect bounds in instrumented calls only.
-	       Otherwise it is a sign we lost flag due to some optimization
-	       and may emit call args incorrectly.  */
-	    gcc_assert (CALL_WITH_BOUNDS_P (exp));
-
-	    /* For structures look for the next available pointer.  */
-	    if (ptr_arg != -1 && slots)
-	      {
-		unsigned bnd_no = bitmap_first_set_bit (slots);
-		args[j].pointer_offset =
-		  bnd_no * POINTER_SIZE / BITS_PER_UNIT;
-
-		bitmap_clear_bit (slots, bnd_no);
-
-		/* Check we have no more pointers in the structure.  */
-		if (bitmap_empty_p (slots))
-		  BITMAP_FREE (slots);
-	      }
-	    args[j].pointer_arg = ptr_arg;
-
-	    /* Check we covered all pointers in the previous
-	       non bounds arg.  */
-	    if (!slots)
-	      ptr_arg = -1;
-	  }
-	else
-	  ptr_arg = -1;
 
 	if (targetm.calls.split_complex_arg
 	    && argtype
@@ -1901,14 +1961,13 @@ initialize_argument_information (int num_actuals ATTRIBUTE_UNUSED,
 
   bitmap_obstack_release (NULL);
 
-  /* Extract attribute alloc_size and if set, store the indices of
-     the corresponding arguments in ALLOC_IDX, and then the actual
-     argument(s) at those indices in ALLOC_ARGS.  */
+  /* Extract attribute alloc_size from the type of the called expression
+     (which could be a function or a function pointer) and if set, store
+     the indices of the corresponding arguments in ALLOC_IDX, and then
+     the actual argument(s) at those indices in ALLOC_ARGS.  */
   int alloc_idx[2] = { -1, -1 };
-  if (tree alloc_size
-      = (fndecl ? lookup_attribute ("alloc_size",
-				    TYPE_ATTRIBUTES (TREE_TYPE (fndecl)))
-	 : NULL_TREE))
+  if (tree alloc_size = lookup_attribute ("alloc_size",
+					  TYPE_ATTRIBUTES (fntype)))
     {
       tree args = TREE_VALUE (alloc_size);
       alloc_idx[0] = TREE_INT_CST_LOW (TREE_VALUE (args)) - 1;
@@ -1924,7 +1983,6 @@ initialize_argument_information (int num_actuals ATTRIBUTE_UNUSED,
     {
       tree type = TREE_TYPE (args[i].tree_value);
       int unsignedp;
-      machine_mode mode;
 
       /* Replace erroneous argument with constant zero.  */
       if (type == error_mark_node || !COMPLETE_TYPE_P (type))
@@ -1933,8 +1991,7 @@ initialize_argument_information (int num_actuals ATTRIBUTE_UNUSED,
       /* If TYPE is a transparent union or record, pass things the way
 	 we would pass the first field of the union or record.  We have
 	 already verified that the modes are the same.  */
-      if ((TREE_CODE (type) == UNION_TYPE || TREE_CODE (type) == RECORD_TYPE)
-	   && TYPE_TRANSPARENT_AGGR (type))
+      if (RECORD_OR_UNION_TYPE_P (type) && TYPE_TRANSPARENT_AGGR (type))
 	type = TREE_TYPE (first_field (type));
 
       /* Decide where to pass this arg.
@@ -1952,15 +2009,13 @@ initialize_argument_information (int num_actuals ATTRIBUTE_UNUSED,
 	 with those made by function.c.  */
 
       /* See if this argument should be passed by invisible reference.  */
-      if (pass_by_reference (args_so_far_pnt, TYPE_MODE (type),
-			     type, argpos < n_named_args))
+      function_arg_info arg (type, argpos < n_named_args);
+      if (pass_by_reference (args_so_far_pnt, arg))
 	{
 	  bool callee_copies;
 	  tree base = NULL_TREE;
 
-	  callee_copies
-	    = reference_callee_copied (args_so_far_pnt, TYPE_MODE (type),
-				       type, argpos < n_named_args);
+	  callee_copies = reference_callee_copied (args_so_far_pnt, arg);
 
 	  /* If we're compiling a thunk, pass through invisible references
 	     instead of making a copy.  */
@@ -2070,42 +2125,38 @@ initialize_argument_information (int num_actuals ATTRIBUTE_UNUSED,
 					      "argument must be passed"
 					      " by copying");
 	    }
+	  arg.pass_by_reference = true;
 	}
 
       unsignedp = TYPE_UNSIGNED (type);
-      mode = promote_function_mode (type, TYPE_MODE (type), &unsignedp,
-				    fndecl ? TREE_TYPE (fndecl) : fntype, 0);
+      arg.type = type;
+      arg.mode
+	= promote_function_mode (type, TYPE_MODE (type), &unsignedp,
+				 fndecl ? TREE_TYPE (fndecl) : fntype, 0);
 
       args[i].unsignedp = unsignedp;
-      args[i].mode = mode;
+      args[i].mode = arg.mode;
 
       targetm.calls.warn_parameter_passing_abi (args_so_far, type);
 
-      args[i].reg = targetm.calls.function_arg (args_so_far, mode, type,
-						argpos < n_named_args);
+      args[i].reg = targetm.calls.function_arg (args_so_far, arg);
 
       if (args[i].reg && CONST_INT_P (args[i].reg))
-	{
-	  args[i].special_slot = args[i].reg;
-	  args[i].reg = NULL;
-	}
+	args[i].reg = NULL;
 
       /* If this is a sibling call and the machine has register windows, the
 	 register window has to be unwinded before calling the routine, so
 	 arguments have to go into the incoming registers.  */
       if (targetm.calls.function_incoming_arg != targetm.calls.function_arg)
 	args[i].tail_call_reg
-	  = targetm.calls.function_incoming_arg (args_so_far, mode, type,
-						 argpos < n_named_args);
+	  = targetm.calls.function_incoming_arg (args_so_far, arg);
       else
 	args[i].tail_call_reg = args[i].reg;
 
       if (args[i].reg)
-	args[i].partial
-	  = targetm.calls.arg_partial_bytes (args_so_far, mode, type,
-					     argpos < n_named_args);
+	args[i].partial = targetm.calls.arg_partial_bytes (args_so_far, arg);
 
-      args[i].pass_on_stack = targetm.calls.must_pass_in_stack (mode, type);
+      args[i].pass_on_stack = targetm.calls.must_pass_in_stack (arg);
 
       /* If FUNCTION_ARG returned a (parallel [(expr_list (nil) ...) ...]),
 	 it means that we are to pass this arg in the register(s) designated
@@ -2123,14 +2174,11 @@ initialize_argument_information (int num_actuals ATTRIBUTE_UNUSED,
 	  || (args[i].pass_on_stack && args[i].reg != 0))
 	*must_preallocate = 1;
 
-      /* No stack allocation and padding for bounds.  */
-      if (POINTER_BOUNDS_P (args[i].tree_value))
-	;
       /* Compute the stack-size of this argument.  */
-      else if (args[i].reg == 0 || args[i].partial != 0
+      if (args[i].reg == 0 || args[i].partial != 0
 	       || reg_parm_stack_space > 0
 	       || args[i].pass_on_stack)
-	locate_and_pad_parm (mode, type,
+	locate_and_pad_parm (arg.mode, type,
 #ifdef STACK_PARMS_IN_REG_PARM_AREA
 			     1,
 #else
@@ -2144,7 +2192,7 @@ initialize_argument_information (int num_actuals ATTRIBUTE_UNUSED,
 	/* The argument is passed entirely in registers.  See at which
 	   end it should be padded.  */
 	args[i].locate.where_pad =
-	  BLOCK_REG_PADDING (mode, type,
+	  BLOCK_REG_PADDING (arg.mode, type,
 			     int_size_in_bytes (type) <= UNITS_PER_WORD);
 #endif
 
@@ -2157,8 +2205,12 @@ initialize_argument_information (int num_actuals ATTRIBUTE_UNUSED,
       /* Increment ARGS_SO_FAR, which has info about which arg-registers
 	 have been used, etc.  */
 
-      targetm.calls.function_arg_advance (args_so_far, TYPE_MODE (type),
-					  type, argpos < n_named_args);
+      /* ??? Traditionally we've passed TYPE_MODE here, instead of the
+	 promoted_mode used for function_arg above.  However, the
+	 corresponding handling of incoming arguments in function.c
+	 does pass the promoted mode.  */
+      arg.mode = TYPE_MODE (type);
+      targetm.calls.function_arg_advance (args_so_far, arg);
 
       /* Store argument values for functions decorated with attribute
 	 alloc_size.  */
@@ -2360,12 +2412,6 @@ finalize_must_preallocate (int must_preallocate, int num_actuals,
 	    partial_seen = 1;
 	  else if (partial_seen && args[i].reg == 0)
 	    must_preallocate = 1;
-	  /* We preallocate in case there are bounds passed
-	     in the bounds table to have precomputed address
-	     for bounds association.  */
-	  else if (POINTER_BOUNDS_P (args[i].tree_value)
-		   && !args[i].reg)
-	    must_preallocate = 1;
 
 	  if (TYPE_MODE (TREE_TYPE (args[i].tree_value)) == BLKmode
 	      && (TREE_CODE (args[i].tree_value) == CALL_EXPR
@@ -2422,10 +2468,6 @@ compute_argument_addresses (struct arg_data *args, rtx argblock, int num_actuals
 	    continue;
 
 	  if (TYPE_EMPTY_P (TREE_TYPE (args[i].tree_value)))
-	    continue;
-
-	  /* Pointer Bounds are never passed on the stack.  */
-	  if (POINTER_BOUNDS_P (args[i].tree_value))
 	    continue;
 
 	  addr = simplify_gen_binary (PLUS, Pmode, arg_reg, offset);
@@ -2728,6 +2770,9 @@ load_register_parameters (struct arg_data *args, int num_actuals,
 	  poly_int64 size = 0;
 	  HOST_WIDE_INT const_size = 0;
 	  rtx_insn *before_arg = get_last_insn ();
+	  tree type = TREE_TYPE (args[i].tree_value);
+	  if (RECORD_OR_UNION_TYPE_P (type) && TYPE_TRANSPARENT_AGGR (type))
+	    type = TREE_TYPE (first_field (type));
 	  /* Set non-negative if we must move a word at a time, even if
 	     just one word (e.g, partial == 4 && mode == DFmode).  Set
 	     to -1 if we just use a normal move insn.  This value can be
@@ -2740,11 +2785,11 @@ load_register_parameters (struct arg_data *args, int num_actuals,
 	      gcc_assert (partial % UNITS_PER_WORD == 0);
 	      nregs = partial / UNITS_PER_WORD;
 	    }
-	  else if (TYPE_MODE (TREE_TYPE (args[i].tree_value)) == BLKmode)
+	  else if (TYPE_MODE (type) == BLKmode)
 	    {
 	      /* Variable-sized parameters should be described by a
 		 PARALLEL instead.  */
-	      const_size = int_size_in_bytes (TREE_TYPE (args[i].tree_value));
+	      const_size = int_size_in_bytes (type);
 	      gcc_assert (const_size >= 0);
 	      nregs = (const_size + (UNITS_PER_WORD - 1)) / UNITS_PER_WORD;
 	      size = const_size;
@@ -2871,8 +2916,7 @@ load_register_parameters (struct arg_data *args, int num_actuals,
 	  if (GET_CODE (reg) == PARALLEL)
 	    use_group_regs (call_fusage, reg);
 	  else if (nregs == -1)
-	    use_reg_mode (call_fusage, reg,
-			  TYPE_MODE (TREE_TYPE (args[i].tree_value)));
+	    use_reg_mode (call_fusage, reg, TYPE_MODE (type));
 	  else if (nregs > 0)
 	    use_regs (call_fusage, REGNO (reg), nregs);
 	}
@@ -3114,7 +3158,7 @@ can_implement_as_sibling_call_p (tree exp,
     }
 
 #ifdef REG_PARM_STACK_SPACE
-  /* If outgoing reg parm stack space changes, we can not do sibcall.  */
+  /* If outgoing reg parm stack space changes, we cannot do sibcall.  */
   if (OUTGOING_REG_PARM_STACK_SPACE (funtype)
       != OUTGOING_REG_PARM_STACK_SPACE (TREE_TYPE (current_function_decl))
       || (reg_parm_stack_space != REG_PARM_STACK_SPACE (current_function_decl)))
@@ -3204,6 +3248,19 @@ can_implement_as_sibling_call_p (tree exp,
   return true;
 }
 
+/* Update stack alignment when the parameter is passed in the stack
+   since the outgoing parameter requires extra alignment on the calling
+   function side. */
+
+static void
+update_stack_alignment_for_call (struct locate_and_pad_arg_data *locate)
+{
+  if (crtl->stack_alignment_needed < locate->boundary)
+    crtl->stack_alignment_needed = locate->boundary;
+  if (crtl->preferred_stack_boundary < locate->boundary)
+    crtl->preferred_stack_boundary = locate->boundary;
+}
+
 /* Generate all the code for a CALL_EXPR exp
    and return an rtx for its value.
    Store the value in TARGET (specified as an rtx) if convenient.
@@ -3238,8 +3295,6 @@ expand_call (tree exp, rtx target, int ignore)
   /* Register in which non-BLKmode value will be returned,
      or 0 if no value or if value is BLKmode.  */
   rtx valreg;
-  /* Register(s) in which bounds are returned.  */
-  rtx valbnd = NULL;
   /* Address where we should return a BLKmode value;
      0 if value not BLKmode.  */
   rtx structure_value_addr = 0;
@@ -3507,7 +3562,7 @@ expand_call (tree exp, rtx target, int ignore)
 
       structure_value_addr_value =
 	make_tree (build_pointer_type (TREE_TYPE (funtype)), temp);
-      structure_value_addr_parm = CALL_WITH_BOUNDS_P (exp) ? 2 : 1;
+      structure_value_addr_parm = 1;
     }
 
   /* Count the arguments and set NUM_ACTUALS.  */
@@ -3602,12 +3657,33 @@ expand_call (tree exp, rtx target, int ignore)
      pushed these optimizations into -O2.  Don't try if we're already
      expanding a call, as that means we're an argument.  Don't try if
      there's cleanups, as we know there's code to follow the call.  */
-
   if (currently_expanding_call++ != 0
-      || !flag_optimize_sibling_calls
+      || (!flag_optimize_sibling_calls && !CALL_FROM_THUNK_P (exp))
       || args_size.var
       || dbg_cnt (tail_call) == false)
     try_tail_call = 0;
+
+  /* Workaround buggy C/C++ wrappers around Fortran routines with
+     character(len=constant) arguments if the hidden string length arguments
+     are passed on the stack; if the callers forget to pass those arguments,
+     attempting to tail call in such routines leads to stack corruption.
+     Avoid tail calls in functions where at least one such hidden string
+     length argument is passed (partially or fully) on the stack in the
+     caller and the callee needs to pass any arguments on the stack.
+     See PR90329.  */
+  if (try_tail_call && maybe_ne (args_size.constant, 0))
+    for (tree arg = DECL_ARGUMENTS (current_function_decl);
+	 arg; arg = DECL_CHAIN (arg))
+      if (DECL_HIDDEN_STRING_LENGTH (arg) && DECL_INCOMING_RTL (arg))
+	{
+	  subrtx_iterator::array_type array;
+	  FOR_EACH_SUBRTX (iter, array, DECL_INCOMING_RTL (arg), NONCONST)
+	    if (MEM_P (*iter))
+	      {
+		try_tail_call = 0;
+		break;
+	      }
+	}
 
   /* If the user has marked the function as requiring tail-call
      optimization, attempt it.  */
@@ -3662,6 +3738,12 @@ expand_call (tree exp, rtx target, int ignore)
   /* Ensure current function's preferred stack boundary is at least
      what we need.  Stack alignment may also increase preferred stack
      boundary.  */
+  for (i = 0; i < num_actuals; i++)
+    if (reg_parm_stack_space > 0
+	|| args[i].reg == 0
+	|| args[i].partial != 0
+	|| args[i].pass_on_stack)
+      update_stack_alignment_for_call (&args[i].locate);
   if (crtl->preferred_stack_boundary < preferred_stack_boundary)
     crtl->preferred_stack_boundary = preferred_stack_boundary;
   else
@@ -4044,10 +4126,7 @@ expand_call (tree exp, rtx target, int ignore)
 
       for (i = 0; i < num_actuals; i++)
 	{
-	  /* Delay bounds until all other args are stored.  */
-	  if (POINTER_BOUNDS_P (args[i].tree_value))
-	    continue;
-	  else if (args[i].reg == 0 || args[i].pass_on_stack)
+	  if (args[i].reg == 0 || args[i].pass_on_stack)
 	    {
 	      rtx_insn *before_arg = get_last_insn ();
 
@@ -4121,28 +4200,15 @@ expand_call (tree exp, rtx target, int ignore)
 
       /* Figure out the register where the value, if any, will come back.  */
       valreg = 0;
-      valbnd = 0;
       if (TYPE_MODE (rettype) != VOIDmode
 	  && ! structure_value_addr)
 	{
 	  if (pcc_struct_value)
-	    {
-	      valreg = hard_function_value (build_pointer_type (rettype),
-					    fndecl, NULL, (pass == 0));
-	      if (CALL_WITH_BOUNDS_P (exp))
-		valbnd = targetm.calls.
-		  chkp_function_value_bounds (build_pointer_type (rettype),
-					      fndecl, (pass == 0));
-	    }
+	    valreg = hard_function_value (build_pointer_type (rettype),
+					  fndecl, NULL, (pass == 0));
 	  else
-	    {
-	      valreg = hard_function_value (rettype, fndecl, fntype,
-					    (pass == 0));
-	      if (CALL_WITH_BOUNDS_P (exp))
-		valbnd = targetm.calls.chkp_function_value_bounds (rettype,
-								   fndecl,
-								   (pass == 0));
-	    }
+	    valreg = hard_function_value (rettype, fndecl, fntype,
+					  (pass == 0));
 
 	  /* If VALREG is a PARALLEL whose first member has a zero
 	     offset, use that.  This is for targets such as m68k that
@@ -4156,17 +4222,6 @@ expand_call (tree exp, rtx target, int ignore)
 		  && GET_MODE (where) == GET_MODE (valreg))
 		valreg = where;
 	    }
-	}
-
-      /* Store all bounds not passed in registers.  */
-      for (i = 0; i < num_actuals; i++)
-	{
-	  if (POINTER_BOUNDS_P (args[i].tree_value)
-	      && !args[i].reg)
-	    store_bounds (&args[i],
-			  args[i].pointer_arg == -1
-			  ? NULL
-			  : &args[args[i].pointer_arg]);
 	}
 
       /* If register arguments require space on the stack and stack space
@@ -4207,14 +4262,11 @@ expand_call (tree exp, rtx target, int ignore)
       /* Set up next argument register.  For sibling calls on machines
 	 with register windows this should be the incoming register.  */
       if (pass == 0)
-	next_arg_reg = targetm.calls.function_incoming_arg (args_so_far,
-							    VOIDmode,
-							    void_type_node,
-							    true);
+	next_arg_reg = targetm.calls.function_incoming_arg
+	  (args_so_far, function_arg_info::end_marker ());
       else
-	next_arg_reg = targetm.calls.function_arg (args_so_far,
-						   VOIDmode, void_type_node,
-						   true);
+	next_arg_reg = targetm.calls.function_arg
+	  (args_so_far, function_arg_info::end_marker ());
 
       if (pass == 1 && (return_flags & ERF_RETURNS_ARG))
 	{
@@ -4293,7 +4345,7 @@ expand_call (tree exp, rtx target, int ignore)
 
 	  emit_move_insn (temp, valreg);
 
-	  /* The return value from a malloc-like function can not alias
+	  /* The return value from a malloc-like function cannot alias
 	     anything else.  */
 	  last = get_last_insn ();
 	  add_reg_note (last, REG_NOALIAS, temp);
@@ -4573,10 +4625,6 @@ expand_call (tree exp, rtx target, int ignore)
 
   free (stack_usage_map_buf);
   free (args);
-
-  /* Join result with returned bounds so caller may use them if needed.  */
-  target = chkp_join_splitted_slot (target, valbnd);
-
   return target;
 }
 
@@ -4835,10 +4883,9 @@ emit_library_call_value_1 (int retval, rtx orgfun, rtx value,
       argvec[count].mode = Pmode;
       argvec[count].partial = 0;
 
-      argvec[count].reg = targetm.calls.function_arg (args_so_far,
-						      Pmode, NULL_TREE, true);
-      gcc_assert (targetm.calls.arg_partial_bytes (args_so_far, Pmode,
-						   NULL_TREE, 1) == 0);
+      function_arg_info ptr_arg (Pmode, /*named=*/true);
+      argvec[count].reg = targetm.calls.function_arg (args_so_far, ptr_arg);
+      gcc_assert (targetm.calls.arg_partial_bytes (args_so_far, ptr_arg) == 0);
 
       locate_and_pad_parm (Pmode, NULL_TREE,
 #ifdef STACK_PARMS_IN_REG_PARM_AREA
@@ -4853,7 +4900,7 @@ emit_library_call_value_1 (int retval, rtx orgfun, rtx value,
 	  || reg_parm_stack_space > 0)
 	args_size.constant += argvec[count].locate.size.constant;
 
-      targetm.calls.function_arg_advance (args_so_far, Pmode, (tree) 0, true);
+      targetm.calls.function_arg_advance (args_so_far, ptr_arg);
 
       count++;
     }
@@ -4861,24 +4908,25 @@ emit_library_call_value_1 (int retval, rtx orgfun, rtx value,
   for (unsigned int i = 0; count < nargs; i++, count++)
     {
       rtx val = args[i].first;
-      machine_mode mode = args[i].second;
+      function_arg_info arg (args[i].second, /*named=*/true);
       int unsigned_p = 0;
 
       /* We cannot convert the arg value to the mode the library wants here;
 	 must do it earlier where we know the signedness of the arg.  */
-      gcc_assert (mode != BLKmode
-		  && (GET_MODE (val) == mode || GET_MODE (val) == VOIDmode));
+      gcc_assert (arg.mode != BLKmode
+		  && (GET_MODE (val) == arg.mode
+		      || GET_MODE (val) == VOIDmode));
 
       /* Make sure it is a reasonable operand for a move or push insn.  */
       if (!REG_P (val) && !MEM_P (val)
-	  && !(CONSTANT_P (val) && targetm.legitimate_constant_p (mode, val)))
+	  && !(CONSTANT_P (val)
+	       && targetm.legitimate_constant_p (arg.mode, val)))
 	val = force_operand (val, NULL_RTX);
 
-      if (pass_by_reference (&args_so_far_v, mode, NULL_TREE, 1))
+      if (pass_by_reference (&args_so_far_v, arg))
 	{
 	  rtx slot;
-	  int must_copy
-	    = !reference_callee_copied (&args_so_far_v, mode, NULL_TREE, 1);
+	  int must_copy = !reference_callee_copied (&args_so_far_v, arg);
 
 	  /* If this was a CONST function, it is now PURE since it now
 	     reads memory.  */
@@ -4897,7 +4945,7 @@ emit_library_call_value_1 (int retval, rtx orgfun, rtx value,
 	    }
 	  else
 	    {
-	      slot = assign_temp (lang_hooks.types.type_for_mode (mode, 0),
+	      slot = assign_temp (lang_hooks.types.type_for_mode (arg.mode, 0),
 				  1, 1);
 	      emit_move_insn (slot, val);
 	    }
@@ -4911,24 +4959,26 @@ emit_library_call_value_1 (int retval, rtx orgfun, rtx value,
 							      slot),
 					     call_fusage);
 
-	  mode = Pmode;
+	  arg.mode = Pmode;
+	  arg.pass_by_reference = true;
 	  val = force_operand (XEXP (slot, 0), NULL_RTX);
 	}
 
-      mode = promote_function_mode (NULL_TREE, mode, &unsigned_p, NULL_TREE, 0);
-      argvec[count].mode = mode;
-      argvec[count].value = convert_modes (mode, GET_MODE (val), val, unsigned_p);
-      argvec[count].reg = targetm.calls.function_arg (args_so_far, mode,
-						      NULL_TREE, true);
+      arg.mode = promote_function_mode (NULL_TREE, arg.mode, &unsigned_p,
+					NULL_TREE, 0);
+      argvec[count].mode = arg.mode;
+      argvec[count].value = convert_modes (arg.mode, GET_MODE (val), val,
+					   unsigned_p);
+      argvec[count].reg = targetm.calls.function_arg (args_so_far, arg);
 
       argvec[count].partial
-	= targetm.calls.arg_partial_bytes (args_so_far, mode, NULL_TREE, 1);
+	= targetm.calls.arg_partial_bytes (args_so_far, arg);
 
       if (argvec[count].reg == 0
 	  || argvec[count].partial != 0
 	  || reg_parm_stack_space > 0)
 	{
-	  locate_and_pad_parm (mode, NULL_TREE,
+	  locate_and_pad_parm (arg.mode, NULL_TREE,
 #ifdef STACK_PARMS_IN_REG_PARM_AREA
 			       1,
 #else
@@ -4944,12 +4994,19 @@ emit_library_call_value_1 (int retval, rtx orgfun, rtx value,
 	/* The argument is passed entirely in registers.  See at which
 	   end it should be padded.  */
 	argvec[count].locate.where_pad =
-	  BLOCK_REG_PADDING (mode, NULL_TREE,
-			     known_le (GET_MODE_SIZE (mode), UNITS_PER_WORD));
+	  BLOCK_REG_PADDING (arg.mode, NULL_TREE,
+			     known_le (GET_MODE_SIZE (arg.mode),
+				       UNITS_PER_WORD));
 #endif
 
-      targetm.calls.function_arg_advance (args_so_far, mode, (tree) 0, true);
+      targetm.calls.function_arg_advance (args_so_far, arg);
     }
+
+  for (int i = 0; i < nargs; i++)
+    if (reg_parm_stack_space > 0
+	|| argvec[i].reg == 0
+	|| argvec[i].partial != 0)
+      update_stack_alignment_for_call (&argvec[i].locate);
 
   /* If this machine requires an external definition for library
      functions, write one out.  */
@@ -5291,7 +5348,7 @@ emit_library_call_value_1 (int retval, rtx orgfun, rtx value,
 	       original_args_size.constant, args_size.constant,
 	       struct_value_size,
 	       targetm.calls.function_arg (args_so_far,
-					   VOIDmode, void_type_node, true),
+					   function_arg_info::end_marker ()),
 	       valreg,
 	       old_inhibit_defer_pop + 1, call_fusage, flags, args_so_far);
 
@@ -5430,67 +5487,6 @@ emit_library_call_value_1 (int retval, rtx orgfun, rtx value,
 
 }
 
-
-/* Store pointer bounds argument ARG  into Bounds Table entry
-   associated with PARM.  */
-static void
-store_bounds (struct arg_data *arg, struct arg_data *parm)
-{
-  rtx slot = NULL, ptr = NULL, addr = NULL;
-
-  /* We may pass bounds not associated with any pointer.  */
-  if (!parm)
-    {
-      gcc_assert (arg->special_slot);
-      slot = arg->special_slot;
-      ptr = const0_rtx;
-    }
-  /* Find pointer associated with bounds and where it is
-     passed.  */
-  else
-    {
-      if (!parm->reg)
-	{
-	  gcc_assert (!arg->special_slot);
-
-	  addr = adjust_address (parm->stack, Pmode, arg->pointer_offset);
-	}
-      else if (REG_P (parm->reg))
-	{
-	  gcc_assert (arg->special_slot);
-	  slot = arg->special_slot;
-
-	  if (MEM_P (parm->value))
-	    addr = adjust_address (parm->value, Pmode, arg->pointer_offset);
-	  else if (REG_P (parm->value))
-	    ptr = gen_rtx_SUBREG (Pmode, parm->value, arg->pointer_offset);
-	  else
-	    {
-	      gcc_assert (!arg->pointer_offset);
-	      ptr = parm->value;
-	    }
-	}
-      else
-	{
-	  gcc_assert (GET_CODE (parm->reg) == PARALLEL);
-
-	  gcc_assert (arg->special_slot);
-	  slot = arg->special_slot;
-
-	  if (parm->parallel_value)
-	    ptr = chkp_get_value_with_offs (parm->parallel_value,
-					    GEN_INT (arg->pointer_offset));
-	  else
-	    gcc_unreachable ();
-	}
-    }
-
-  /* Expand bounds.  */
-  if (!arg->value)
-    arg->value = expand_normal (arg->tree_value);
-
-  targetm.calls.store_bounds_for_arg (ptr, addr, arg->value, slot);
-}
 
 /* Store a single argument for a function call
    into the register or memory area where it must be passed.
@@ -5786,15 +5782,9 @@ store_one_arg (struct arg_data *arg, rtx argblock, int flags,
 	  rtx x = arg->value;
 	  poly_int64 i = 0;
 
-	  if (XEXP (x, 0) == crtl->args.internal_arg_pointer
-	      || (GET_CODE (XEXP (x, 0)) == PLUS
-		  && XEXP (XEXP (x, 0), 0) ==
-		     crtl->args.internal_arg_pointer
-		  && CONST_INT_P (XEXP (XEXP (x, 0), 1))))
+	  if (strip_offset (XEXP (x, 0), &i)
+	      == crtl->args.internal_arg_pointer)
 	    {
-	      if (XEXP (x, 0) != crtl->args.internal_arg_pointer)
-		i = rtx_to_poly_int64 (XEXP (XEXP (x, 0), 1));
-
 	      /* arg.locate doesn't contain the pretend_args_size offset,
 		 it's part of argblock.  Ensure we don't count it in I.  */
 	      if (STACK_GROWS_DOWNWARD)
@@ -5871,22 +5861,21 @@ store_one_arg (struct arg_data *arg, rtx argblock, int flags,
   return sibcall_failure;
 }
 
-/* Nonzero if we do not know how to pass TYPE solely in registers.  */
+/* Nonzero if we do not know how to pass ARG solely in registers.  */
 
 bool
-must_pass_in_stack_var_size (machine_mode mode ATTRIBUTE_UNUSED,
-			     const_tree type)
+must_pass_in_stack_var_size (const function_arg_info &arg)
 {
-  if (!type)
+  if (!arg.type)
     return false;
 
   /* If the type has variable size...  */
-  if (TREE_CODE (TYPE_SIZE (type)) != INTEGER_CST)
+  if (TREE_CODE (TYPE_SIZE (arg.type)) != INTEGER_CST)
     return true;
 
   /* If the type is marked as addressable (it is required
      to be constructed into the stack)...  */
-  if (TREE_ADDRESSABLE (type))
+  if (TREE_ADDRESSABLE (arg.type))
     return true;
 
   return false;
@@ -5897,32 +5886,42 @@ must_pass_in_stack_var_size (machine_mode mode ATTRIBUTE_UNUSED,
 /* ??? Should be able to merge these two by examining BLOCK_REG_PADDING.  */
 
 bool
-must_pass_in_stack_var_size_or_pad (machine_mode mode, const_tree type)
+must_pass_in_stack_var_size_or_pad (const function_arg_info &arg)
 {
-  if (!type)
+  if (!arg.type)
     return false;
 
   /* If the type has variable size...  */
-  if (TREE_CODE (TYPE_SIZE (type)) != INTEGER_CST)
+  if (TREE_CODE (TYPE_SIZE (arg.type)) != INTEGER_CST)
     return true;
 
   /* If the type is marked as addressable (it is required
      to be constructed into the stack)...  */
-  if (TREE_ADDRESSABLE (type))
+  if (TREE_ADDRESSABLE (arg.type))
     return true;
 
-  if (TYPE_EMPTY_P (type))
+  if (TYPE_EMPTY_P (arg.type))
     return false;
 
   /* If the padding and mode of the type is such that a copy into
      a register would put it into the wrong part of the register.  */
-  if (mode == BLKmode
-      && int_size_in_bytes (type) % (PARM_BOUNDARY / BITS_PER_UNIT)
-      && (targetm.calls.function_arg_padding (mode, type)
+  if (arg.mode == BLKmode
+      && int_size_in_bytes (arg.type) % (PARM_BOUNDARY / BITS_PER_UNIT)
+      && (targetm.calls.function_arg_padding (arg.mode, arg.type)
 	  == (BYTES_BIG_ENDIAN ? PAD_UPWARD : PAD_DOWNWARD)))
     return true;
 
   return false;
+}
+
+/* Return true if TYPE must be passed on the stack when passed to
+   the "..." arguments of a function.  */
+
+bool
+must_pass_va_arg_in_stack (tree type)
+{
+  function_arg_info arg (type, /*named=*/false);
+  return targetm.calls.must_pass_in_stack (arg);
 }
 
 /* Tell the garbage collector about GTY markers in this source file.  */

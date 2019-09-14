@@ -1,5 +1,5 @@
 /* Rematerialize pseudos values.
-   Copyright (C) 2014-2018 Free Software Foundation, Inc.
+   Copyright (C) 2014-2019 Free Software Foundation, Inc.
    Contributed by Vladimir Makarov <vmakarov@redhat.com>.
 
 This file is part of GCC.
@@ -69,9 +69,9 @@ along with GCC; see the file COPYING3.	If not see
 /* Number of candidates for rematerialization.  */
 static unsigned int cands_num;
 
-/* The following is used for representation of call_used_reg_set in
+/* The following is used for representation of call_used_or_fixed_regs in
    form array whose elements are hard register numbers with nonzero bit
-   in CALL_USED_REG_SET. */
+   in CALL_USED_OR_FIXED_REGS. */
 static int call_used_regs_arr_len;
 static int call_used_regs_arr[FIRST_PSEUDO_REGISTER];
 
@@ -110,8 +110,8 @@ struct cand
 
 /* Vector containing all candidates.  */
 static vec<cand_t> all_cands;
-/* Map: insn -> candidate representing it.  It is null if the insn can
-   not be used for rematerialization.  */
+/* Map: insn -> candidate representing it.  It is null if the insn cannot
+   be used for rematerialization.  */
 static cand_t *insn_to_cand;
 /* A secondary map, for candidates that involve two insns, where the
    second one makes the equivalence.  The candidate must not be used
@@ -124,8 +124,9 @@ static cand_t *regno_cands;
 
 /* Data about basic blocks used for the rematerialization
    sub-pass.  */
-struct remat_bb_data
+class remat_bb_data
 {
+public:
   /* Basic block about which the below data are.  */
   basic_block bb;
   /* Registers changed in the basic block: */
@@ -144,7 +145,7 @@ struct remat_bb_data
 };
 
 /* Array for all BB data.  Indexed by the corresponding BB index.  */
-typedef struct remat_bb_data *remat_bb_data_t;
+typedef class remat_bb_data *remat_bb_data_t;
 
 /* Basic blocks for data flow problems -- all bocks except the special
    ones.  */
@@ -253,7 +254,7 @@ finish_cand_table (void)
 
 
 
-/* Return true if X contains memory or some UNSPEC.  We can not just
+/* Return true if X contains memory or some UNSPEC.  We cannot just
    check insn operands as memory or unspec might be not an operand
    itself but contain an operand.  Insn with memory access is not
    profitable for rematerialization.  Rematerialization of UNSPEC
@@ -287,7 +288,7 @@ bad_for_rematerialization_p (rtx x)
   return false;
 }
 
-/* If INSN can not be used for rematerialization, return negative
+/* If INSN cannot be used for rematerialization, return negative
    value.  If INSN can be considered as a candidate for
    rematerialization, return value which is the operand number of the
    pseudo for which the insn can be used for rematerialization.  Here
@@ -306,10 +307,10 @@ operand_to_remat (rtx_insn *insn)
   /* First find a pseudo which can be rematerialized.  */
   for (reg = id->regs; reg != NULL; reg = reg->next)
     {
-      /* True FRAME_POINTER_NEEDED might be because we can not follow
+      /* True FRAME_POINTER_NEEDED might be because we cannot follow
 	 changing sp offsets, e.g. alloca is used.  If the insn contains
-	 stack pointer in such case, we can not rematerialize it as we
-	 can not know sp offset at a rematerialization place.  */
+	 stack pointer in such case, we cannot rematerialize it as we
+	 cannot know sp offset at a rematerialization place.  */
       if (reg->regno == STACK_POINTER_REGNUM && frame_pointer_needed)
 	return -1;
       else if (reg->type == OP_OUT && ! reg->subreg_p
@@ -509,7 +510,7 @@ create_remat_bb_data (void)
   basic_block bb;
   remat_bb_data_t bb_info;
 
-  remat_bb_data = XNEWVEC (struct remat_bb_data,
+  remat_bb_data = XNEWVEC (class remat_bb_data,
 			   last_basic_block_for_fn (cfun));
   FOR_ALL_BB_FN (bb, cfun)
     {
@@ -708,8 +709,8 @@ call_used_input_regno_present_p (rtx_insn *insn)
     for (reg = (iter == 0 ? id->regs : static_id->hard_regs);
 	 reg != NULL;
 	 reg = reg->next)
-      if (reg->type == OP_IN && reg->regno <= FIRST_PSEUDO_REGISTER
-	  && TEST_HARD_REG_BIT (call_used_reg_set, reg->regno))
+      if (reg->type == OP_IN && reg->regno < FIRST_PSEUDO_REGISTER
+	  && TEST_HARD_REG_BIT (call_used_or_fixed_regs, reg->regno))
 	return true;
   return false;
 }
@@ -1020,7 +1021,6 @@ get_hard_regs (struct lra_insn_reg *reg, int &nregs)
 static void
 update_scratch_ops (rtx_insn *remat_insn)
 {
-  int hard_regno;
   lra_insn_recog_data_t id = lra_get_insn_recog_data (remat_insn);
   struct lra_static_insn_data *static_id = id->insn_static_data;
   for (int i = 0; i < static_id->n_operands; i++)
@@ -1031,18 +1031,10 @@ update_scratch_ops (rtx_insn *remat_insn)
       int regno = REGNO (*loc);
       if (! lra_former_scratch_p (regno))
 	continue;
-      hard_regno = reg_renumber[regno];
       *loc = lra_create_new_reg (GET_MODE (*loc), *loc,
 				 lra_get_allocno_class (regno),
 				 "scratch pseudo copy");
-      if (hard_regno >= 0)
-	{
-	  reg_renumber[REGNO (*loc)] = hard_regno;
-	  if (lra_dump_file)
-	    fprintf (lra_dump_file, "	 Assigning the same %d to r%d\n",
-		     REGNO (*loc), hard_regno);
-	}
-      lra_register_new_scratch_op (remat_insn, i);
+      lra_register_new_scratch_op (remat_insn, i, id->icode);
     }
   
 }
@@ -1317,7 +1309,7 @@ lra_remat (void)
   all_cands.create (8000);
   call_used_regs_arr_len = 0;
   for (int i = 0; i < FIRST_PSEUDO_REGISTER; i++)
-    if (call_used_regs[i])
+    if (call_used_or_fixed_reg_p (i))
       call_used_regs_arr[call_used_regs_arr_len++] = i;
   initiate_cand_table ();
   create_remat_bb_data ();

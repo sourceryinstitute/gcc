@@ -1,6 +1,6 @@
 // <range_access.h> -*- C++ -*-
 
-// Copyright (C) 2010-2018 Free Software Foundation, Inc.
+// Copyright (C) 2010-2019 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -245,11 +245,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   /**
    *  @brief  Return the size of an array.
-   *  @param  __array  Array.
    */
   template <typename _Tp, size_t _Nm>
     constexpr size_t
-    size(const _Tp (&/*__array*/)[_Nm]) noexcept
+    size(const _Tp (&)[_Nm]) noexcept
     { return _Nm; }
 
   /**
@@ -264,11 +263,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   /**
    *  @brief  Return whether an array is empty (always false).
-   *  @param  __array  Container.
    */
   template <typename _Tp, size_t _Nm>
     [[nodiscard]] constexpr bool
-    empty(const _Tp (&/*__array*/)[_Nm]) noexcept
+    empty(const _Tp (&)[_Nm]) noexcept
     { return false; }
 
   /**
@@ -319,6 +317,86 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     { return __il.begin(); }
 
 #endif // C++17
+
+#if __cplusplus > 201703L
+  template<typename _Container>
+    constexpr auto
+    ssize(const _Container& __cont)
+    noexcept(noexcept(__cont.size()))
+    -> common_type_t<ptrdiff_t, make_signed_t<decltype(__cont.size())>>
+    {
+      using type = make_signed_t<decltype(__cont.size())>;
+      return static_cast<common_type_t<ptrdiff_t, type>>(__cont.size());
+    }
+
+  template<typename _Tp, ptrdiff_t _Num>
+    constexpr ptrdiff_t
+    ssize(const _Tp (&)[_Num]) noexcept
+    { return _Num; }
+
+  // "why are these in namespace std:: and not __gnu_cxx:: ?"
+  // because if we don't put them here it's impossible to
+  // have implicit ADL with "using std::begin/end/size/data;".
+  template <typename _Container>
+    constexpr auto
+    __adl_begin(_Container& __cont) noexcept(noexcept(begin(__cont)))
+    { return begin(__cont); }
+
+  template <typename _Container>
+    constexpr auto
+    __adl_end(_Container& __cont) noexcept(noexcept(end(__cont)))
+    { return end(__cont); }
+
+  template <typename _Container>
+    constexpr auto
+    __adl_cbegin(_Container& __cont) noexcept(noexcept(cbegin(__cont)))
+    { return cbegin(__cont); }
+
+  template <typename _Container>
+    constexpr auto
+    __adl_cend(_Container& __cont) noexcept(noexcept(cend(__cont)))
+    { return cend(__cont); }
+
+  template <typename _Container>
+    constexpr auto
+    __adl_rbegin(_Container& __cont) noexcept(noexcept(rbegin(__cont)))
+    { return rbegin(__cont); }
+
+  template <typename _Container>
+    constexpr auto
+    __adl_rend(_Container& __cont) noexcept(noexcept(rend(__cont)))
+    { return rend(__cont); }
+
+  template <typename _Container>
+    constexpr auto
+    __adl_crbegin(_Container& __cont) noexcept(noexcept(crbegin(__cont)))
+    { return crbegin(__cont); }
+
+  template <typename _Container>
+    constexpr auto
+    __adl_crend(_Container& __cont) noexcept(noexcept(crend(__cont)))
+    { return crend(__cont); }
+
+  template <typename _Container>
+    constexpr auto
+    __adl_data(_Container& __cont) noexcept(noexcept(data(__cont)))
+    { return data(__cont); }
+
+  template <typename _Container>
+    constexpr auto
+    __adl_cdata(_Container& __cont) noexcept(noexcept(cdata(__cont)))
+    { return cdata(__cont); }
+
+  template <typename _Container>
+    constexpr auto
+    __adl_size(_Container& __cont) noexcept(noexcept(size(__cont)))
+    { return size(__cont); }
+
+  template <typename _Container>
+    constexpr auto
+    __adl_empty(_Container& __cont) noexcept(noexcept(empty(__cont)))
+    { return empty(__cont); }
+#endif // C++20
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace

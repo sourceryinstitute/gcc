@@ -1,5 +1,5 @@
 /* Mainly the interface between cpplib and the C front ends.
-   Copyright (C) 1987-2018 Free Software Foundation, Inc.
+   Copyright (C) 1987-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -103,11 +103,9 @@ get_fileinfo (const char *name)
   struct c_fileinfo *fi;
 
   if (!file_info_tree)
-    file_info_tree = splay_tree_new ((splay_tree_compare_fn)
-				     (void (*) (void)) strcmp,
+    file_info_tree = splay_tree_new (splay_tree_compare_strings,
 				     0,
-				     (splay_tree_delete_value_fn)
-				     (void (*) (void)) free);
+				     splay_tree_delete_pointers);
 
   n = splay_tree_lookup (file_info_tree, (splay_tree_key) name);
   if (n)
@@ -201,14 +199,14 @@ fe_file_change (const line_map_ordinary *new_map)
 	 we already did in compile_file.  */
       if (!MAIN_FILE_P (new_map))
 	{
-	  unsigned int included_at = LAST_SOURCE_LINE_LOCATION (new_map - 1);
+	  location_t included_at = linemap_included_from (new_map);
 	  int line = 0;
 	  if (included_at > BUILTINS_LOCATION)
 	    line = SOURCE_LINE (new_map - 1, included_at);
 
 	  input_location = new_map->start_location;
 	  (*debug_hooks->start_source_file) (line, LINEMAP_FILE (new_map));
-#ifndef NO_IMPLICIT_EXTERN_C
+#ifdef SYSTEM_IMPLICIT_EXTERN_C
 	  if (c_header_level)
 	    ++c_header_level;
 	  else if (LINEMAP_SYSP (new_map) == 2)
@@ -221,7 +219,7 @@ fe_file_change (const line_map_ordinary *new_map)
     }
   else if (new_map->reason == LC_LEAVE)
     {
-#ifndef NO_IMPLICIT_EXTERN_C
+#ifdef SYSTEM_IMPLICIT_EXTERN_C
       if (c_header_level && --c_header_level == 0)
 	{
 	  if (LINEMAP_SYSP (new_map) == 2)
@@ -239,7 +237,7 @@ fe_file_change (const line_map_ordinary *new_map)
 }
 
 static void
-cb_def_pragma (cpp_reader *pfile, source_location loc)
+cb_def_pragma (cpp_reader *pfile, location_t loc)
 {
   /* Issue a warning message if we have been asked to do so.  Ignore
      unknown pragmas in system headers unless an explicit
@@ -260,14 +258,14 @@ cb_def_pragma (cpp_reader *pfile, source_location loc)
 	    name = cpp_token_as_text (pfile, s);
 	}
 
-      warning_at (fe_loc, OPT_Wunknown_pragmas, "ignoring #pragma %s %s",
+      warning_at (fe_loc, OPT_Wunknown_pragmas, "ignoring %<#pragma %s %s%>",
 		  space, name);
     }
 }
 
 /* #define callback for DWARF and DWARF2 debug info.  */
 static void
-cb_define (cpp_reader *pfile, source_location loc, cpp_hashnode *node)
+cb_define (cpp_reader *pfile, location_t loc, cpp_hashnode *node)
 {
   const struct line_map *map = linemap_lookup (line_table, loc);
   (*debug_hooks->define) (SOURCE_LINE (linemap_check_ordinary (map), loc),
@@ -276,7 +274,7 @@ cb_define (cpp_reader *pfile, source_location loc, cpp_hashnode *node)
 
 /* #undef callback for DWARF and DWARF2 debug info.  */
 static void
-cb_undef (cpp_reader * ARG_UNUSED (pfile), source_location loc,
+cb_undef (cpp_reader * ARG_UNUSED (pfile), location_t loc,
 	  cpp_hashnode *node)
 {
   const struct line_map *map = linemap_lookup (line_table, loc);
@@ -358,6 +356,10 @@ c_common_has_attribute (cpp_reader *pfile)
 		       || is_attribute_p ("nodiscard", attr_name)
 		       || is_attribute_p ("fallthrough", attr_name))
 		result = 201603;
+	      else if (is_attribute_p ("no_unique_address", attr_name)
+		       || is_attribute_p ("likely", attr_name)
+		       || is_attribute_p ("unlikely", attr_name))
+		result = 201803;
 	      if (result)
 		attr_name = NULL_TREE;
 	    }
@@ -392,7 +394,6 @@ enum cpp_ttype
 c_lex_with_flags (tree *value, location_t *loc, unsigned char *cpp_flags,
 		  int lex_flags)
 {
-  static bool no_more_pch;
   const cpp_token *tok;
   enum cpp_ttype type;
   unsigned char add_flags = 0;
@@ -626,12 +627,6 @@ c_lex_with_flags (tree *value, location_t *loc, unsigned char *cpp_flags,
   if (cpp_flags)
     *cpp_flags = tok->flags | add_flags;
 
-  if (!no_more_pch)
-    {
-      no_more_pch = true;
-      c_common_no_more_pch ();
-    }
-
   timevar_pop (TV_CPP);
 
   return type;
@@ -816,7 +811,7 @@ interpret_float (const cpp_token *token, unsigned int flags,
       if (((flags & CPP_N_HEX) == 0) && ((flags & CPP_N_IMAGINARY) == 0))
 	{
 	  warning (OPT_Wunsuffixed_float_constants,
-		   "unsuffixed float constant");
+		   "unsuffixed floating constant");
 	  if (float_const_decimal64_p ())
 	    flags |= CPP_N_DFLOAT;
 	}
@@ -1279,8 +1274,13 @@ lex_string (const cpp_token *tok, tree *valp, bool objc_string, bool translate)
     {
     default:
     case CPP_STRING:
-    case CPP_UTF8STRING:
       TREE_TYPE (value) = char_array_type_node;
+      break;
+    case CPP_UTF8STRING:
+      if (flag_char8_t)
+        TREE_TYPE (value) = char8_array_type_node;
+      else
+        TREE_TYPE (value) = char_array_type_node;
       break;
     case CPP_STRING16:
       TREE_TYPE (value) = char16_array_type_node;
@@ -1321,7 +1321,12 @@ lex_charconst (const cpp_token *token)
   else if (token->type == CPP_CHAR16)
     type = char16_type_node;
   else if (token->type == CPP_UTF8CHAR)
-    type = char_type_node;
+    {
+      if (flag_char8_t)
+        type = char8_type_node;
+      else
+        type = char_type_node;
+    }
   /* In C, a character constant has type 'int'.
      In C++ 'char', but multi-char charconsts have type 'int'.  */
   else if (!c_dialect_cxx () || chars_seen > 1)

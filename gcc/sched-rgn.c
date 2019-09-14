@@ -1,5 +1,5 @@
 /* Instruction scheduling pass.
-   Copyright (C) 1992-2018 Free Software Foundation, Inc.
+   Copyright (C) 1992-2019 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com) Enhanced by,
    and currently maintained by, Jim Wilson (wilson@cygnus.com)
 
@@ -66,6 +66,13 @@ along with GCC; see the file COPYING3.  If not see
 #include "dbgcnt.h"
 #include "pretty-print.h"
 #include "print-rtl.h"
+
+/* Disable warnings about quoting issues in the pp_xxx calls below
+   that (intentionally) don't follow GCC diagnostic conventions.  */
+#if __GNUC__ >= 10
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wformat-diag"
+#endif
 
 #ifdef INSN_SCHEDULING
 
@@ -241,7 +248,7 @@ static void compute_block_dependences (int);
 static void schedule_region (int);
 static void concat_insn_mem_list (rtx_insn_list *, rtx_expr_list *,
 				  rtx_insn_list **, rtx_expr_list **);
-static void propagate_deps (int, struct deps_desc *);
+static void propagate_deps (int, class deps_desc *);
 static void free_pending_lists (void);
 
 /* Functions for construction of the control flow graph.  */
@@ -927,7 +934,7 @@ haifa_find_rgns (void)
 	     The algorithm in the DFS traversal may not mark B & D as part
 	     of the loop (i.e. they will not have max_hdr set to A).
 
-	     We know they can not be loop latches (else they would have
+	     We know they cannot be loop latches (else they would have
 	     had max_hdr set since they'd have a backedge to a dominator
 	     block).  So we don't need them on the initial queue.
 
@@ -2409,7 +2416,7 @@ static bool
 sets_likely_spilled (rtx pat)
 {
   bool ret = false;
-  note_stores (pat, sets_likely_spilled_1, &ret);
+  note_pattern_stores (pat, sets_likely_spilled_1, &ret);
   return ret;
 }
 
@@ -2497,6 +2504,11 @@ add_branch_dependences (rtx_insn *head, rtx_insn *tail)
       while (insn != head && DEBUG_INSN_P (insn));
     }
 
+  /* Selective scheduling handles control dependencies by itself, and
+     CANT_MOVE flags ensure that other insns will be kept in place.  */
+  if (sel_sched_p ())
+    return;
+
   /* Make sure these insns are scheduled last in their block.  */
   insn = last;
   if (insn != 0)
@@ -2571,7 +2583,7 @@ add_branch_dependences (rtx_insn *head, rtx_insn *tail)
    the variables of its predecessors.  When the analysis for a bb completes,
    we save the contents to the corresponding bb_deps[bb] variable.  */
 
-static struct deps_desc *bb_deps;
+static class deps_desc *bb_deps;
 
 static void
 concat_insn_mem_list (rtx_insn_list *copy_insns,
@@ -2596,7 +2608,7 @@ concat_insn_mem_list (rtx_insn_list *copy_insns,
 
 /* Join PRED_DEPS to the SUCC_DEPS.  */
 void
-deps_join (struct deps_desc *succ_deps, struct deps_desc *pred_deps)
+deps_join (class deps_desc *succ_deps, class deps_desc *pred_deps)
 {
   unsigned reg;
   reg_set_iterator rsi;
@@ -2658,7 +2670,7 @@ deps_join (struct deps_desc *succ_deps, struct deps_desc *pred_deps)
 /* After computing the dependencies for block BB, propagate the dependencies
    found in TMP_DEPS to the successors of the block.  */
 static void
-propagate_deps (int bb, struct deps_desc *pred_deps)
+propagate_deps (int bb, class deps_desc *pred_deps)
 {
   basic_block block = BASIC_BLOCK_FOR_FN (cfun, BB_TO_BLOCK (bb));
   edge_iterator ei;
@@ -2715,7 +2727,7 @@ static void
 compute_block_dependences (int bb)
 {
   rtx_insn *head, *tail;
-  struct deps_desc tmp_deps;
+  class deps_desc tmp_deps;
 
   tmp_deps = bb_deps[bb];
 
@@ -2725,9 +2737,7 @@ compute_block_dependences (int bb)
 
   sched_analyze (&tmp_deps, head, tail);
 
-  /* Selective scheduling handles control dependencies by itself.  */
-  if (!sel_sched_p ())
-    add_branch_dependences (head, tail);
+  add_branch_dependences (head, tail);
 
   if (current_nr_blocks > 1)
     propagate_deps (bb, &tmp_deps);
@@ -3341,7 +3351,7 @@ sched_rgn_compute_dependencies (int rgn)
       init_deps_global ();
 
       /* Initializations for region data dependence analysis.  */
-      bb_deps = XNEWVEC (struct deps_desc, current_nr_blocks);
+      bb_deps = XNEWVEC (class deps_desc, current_nr_blocks);
       for (bb = 0; bb < current_nr_blocks; bb++)
 	init_deps (bb_deps + bb, false);
 
@@ -3504,8 +3514,7 @@ schedule_insns (void)
   haifa_sched_init ();
   sched_rgn_init (reload_completed);
 
-  bitmap_initialize (&not_in_df, 0);
-  bitmap_clear (&not_in_df);
+  bitmap_initialize (&not_in_df, &bitmap_default_obstack);
 
   /* Schedule every region in the subroutine.  */
   for (rgn = 0; rgn < nr_regions; rgn++)
@@ -3514,7 +3523,7 @@ schedule_insns (void)
 
   /* Clean up.  */
   sched_rgn_finish ();
-  bitmap_clear (&not_in_df);
+  bitmap_release (&not_in_df);
 
   haifa_sched_finish ();
 }
@@ -3945,3 +3954,7 @@ make_pass_sched_fusion (gcc::context *ctxt)
 {
   return new pass_sched_fusion (ctxt);
 }
+
+#if __GNUC__ >= 10
+#  pragma GCC diagnostic pop
+#endif

@@ -1,5 +1,5 @@
 /* Backend support for Fortran 95 basic types and derived types.
-   Copyright (C) 2002-2018 Free Software Foundation, Inc.
+   Copyright (C) 2002-2019 Free Software Foundation, Inc.
    Contributed by Paul Brook <paul@nowt.org>
    and Steven Bosscher <s.bosscher@student.tudelft.nl>
 
@@ -216,43 +216,6 @@ get_int_kind_from_node (tree type)
       return gfc_integer_kinds[i].kind;
 
   return -1;
-}
-
-/* Return a typenode for the "standard" C type with a given name.  */
-static tree
-get_typenode_from_name (const char *name)
-{
-  if (name == NULL || *name == '\0')
-    return NULL_TREE;
-
-  if (strcmp (name, "char") == 0)
-    return char_type_node;
-  if (strcmp (name, "unsigned char") == 0)
-    return unsigned_char_type_node;
-  if (strcmp (name, "signed char") == 0)
-    return signed_char_type_node;
-
-  if (strcmp (name, "short int") == 0)
-    return short_integer_type_node;
-  if (strcmp (name, "short unsigned int") == 0)
-    return short_unsigned_type_node;
-
-  if (strcmp (name, "int") == 0)
-    return integer_type_node;
-  if (strcmp (name, "unsigned int") == 0)
-    return unsigned_type_node;
-
-  if (strcmp (name, "long int") == 0)
-    return long_integer_type_node;
-  if (strcmp (name, "long unsigned int") == 0)
-    return long_unsigned_type_node;
-
-  if (strcmp (name, "long long int") == 0)
-    return long_long_integer_type_node;
-  if (strcmp (name, "long long unsigned int") == 0)
-    return long_long_unsigned_type_node;
-
-  gcc_unreachable ();
 }
 
 static int
@@ -1213,7 +1176,8 @@ gfc_typenode_for_spec (gfc_typespec * spec, int codim)
         {
           spec->type = BT_INTEGER;
           spec->kind = gfc_index_integer_kind;
-          spec->f90_type = BT_VOID;
+	  spec->f90_type = BT_VOID;
+	  spec->is_c_interop = 1;  /* Mark as escaping later.  */
         }
       break;
     case BT_VOID:
@@ -1230,6 +1194,9 @@ gfc_typenode_for_spec (gfc_typespec * spec, int codim)
 	    basetype = pfunc_type_node;
 	}
        break;
+    case BT_PROCEDURE:
+      basetype = pfunc_type_node;
+      break;
     default:
       gcc_unreachable ();
     }
@@ -1518,6 +1485,8 @@ gfc_get_dtype_rank_type (int rank, tree etype)
   tree field;
   vec<constructor_elt, va_gc> *v = NULL;
 
+  size = TYPE_SIZE_UNIT (etype);
+
   switch (TREE_CODE (etype))
     {
     case INTEGER_TYPE:
@@ -1546,21 +1515,23 @@ gfc_get_dtype_rank_type (int rank, tree etype)
     /* We will never have arrays of arrays.  */
     case ARRAY_TYPE:
       n = BT_CHARACTER;
+      if (size == NULL_TREE)
+	size = TYPE_SIZE_UNIT (TREE_TYPE (etype));
       break;
 
     case POINTER_TYPE:
       n = BT_ASSUMED;
+      if (TREE_CODE (TREE_TYPE (etype)) != VOID_TYPE)
+	size = TYPE_SIZE_UNIT (TREE_TYPE (etype));
+      else
+	size = build_int_cst (size_type_node, 0);
     break;
 
     default:
       /* TODO: Don't do dtype for temporary descriptorless arrays.  */
-      /* We can strange array types for temporary arrays.  */
+      /* We can encounter strange array types for temporary arrays.  */
       return gfc_index_zero_node;
     }
-
-  size = TYPE_SIZE_UNIT (etype);
-  if (n == BT_CHARACTER && size == NULL_TREE)
-    size = TYPE_SIZE_UNIT (TREE_TYPE (etype));
 
   tmp = get_dtype_type_node ();
   field = gfc_advance_chain (TYPE_FIELDS (tmp),
@@ -1846,11 +1817,11 @@ gfc_get_array_descriptor_base (int dimen, int codimen, bool restricted)
   TYPE_NAMELESS (fat_type) = 1;
 
   /* Add the data member as the first element of the descriptor.  */
-  decl = gfc_add_field_to_struct_1 (fat_type,
-				    get_identifier ("data"),
-				    (restricted
-				     ? prvoid_type_node
-				     : ptr_type_node), &chain);
+  gfc_add_field_to_struct_1 (fat_type,
+			     get_identifier ("data"),
+			     (restricted
+			      ? prvoid_type_node
+			      : ptr_type_node), &chain);
 
   /* Add the base component.  */
   decl = gfc_add_field_to_struct_1 (fat_type,
@@ -1919,6 +1890,14 @@ gfc_get_array_type_bounds (tree etype, int dimen, int codimen, tree * lbound,
 
   base_type = gfc_get_array_descriptor_base (dimen, codimen, restricted);
   fat_type = build_distinct_type_copy (base_type);
+  /* Unshare TYPE_FIELDs.  */
+  for (tree *tp = &TYPE_FIELDS (fat_type); *tp; tp = &DECL_CHAIN (*tp))
+    {
+      tree next = DECL_CHAIN (*tp);
+      *tp = copy_node (*tp);
+      DECL_CONTEXT (*tp) = fat_type;
+      DECL_CHAIN (*tp) = next;
+    }
   /* Make sure that nontarget and target array type have the same canonical
      type (and same stub decl for debug info).  */
   base_type = gfc_get_array_descriptor_base (dimen, codimen, false);
@@ -2530,7 +2509,6 @@ gfc_get_derived_type (gfc_symbol * derived, int codimen)
   bool got_canonical = false;
   bool unlimited_entity = false;
   gfc_component *c;
-  gfc_dt_list *dt;
   gfc_namespace *ns;
   tree tmp;
   bool coarray_flag;
@@ -2595,14 +2573,19 @@ gfc_get_derived_type (gfc_symbol * derived, int codimen)
 	   ns->translated && !got_canonical;
 	   ns = ns->sibling)
 	{
-	  dt = ns->derived_types;
-	  for (; dt && !canonical; dt = dt->next)
+	  if (ns->derived_types)
 	    {
-	      gfc_copy_dt_decls_ifequal (dt->derived, derived, true);
-	      if (derived->backend_decl)
-		got_canonical = true;
-	    }
-	}
+	      for (gfc_symbol *dt = ns->derived_types; dt && !got_canonical;
+		   dt = dt->dt_next)
+		{
+		  gfc_copy_dt_decls_ifequal (dt, derived, true);
+		  if (derived->backend_decl)
+		    got_canonical = true;
+		  if (dt->dt_next == ns->derived_types)
+		    break;
+		}
+ 	    }
+ 	}
     }
 
   /* Store up the canonical type to be added to this one.  */
@@ -2863,8 +2846,12 @@ copy_derived_types:
 	}
     }
 
-  for (dt = gfc_derived_types; dt; dt = dt->next)
-    gfc_copy_dt_decls_ifequal (derived, dt->derived, false);
+  for (gfc_symbol *dt = gfc_derived_types; dt; dt = dt->dt_next)
+    {
+      gfc_copy_dt_decls_ifequal (derived, dt, false);
+      if (dt->dt_next == gfc_derived_types)
+	break;
+    }
 
   return derived->backend_decl;
 }
@@ -2974,7 +2961,8 @@ create_fn_spec (gfc_symbol *sym, tree fntype)
 		    || f->sym->ts.u.derived->attr.pointer_comp))
 	    || (f->sym->ts.type == BT_CLASS
 		&& (CLASS_DATA (f->sym)->ts.u.derived->attr.proc_pointer_comp
-		    || CLASS_DATA (f->sym)->ts.u.derived->attr.pointer_comp)))
+		    || CLASS_DATA (f->sym)->ts.u.derived->attr.pointer_comp))
+	    || (f->sym->ts.type == BT_INTEGER && f->sym->ts.is_c_interop))
 	  spec[spec_len++] = '.';
 	else if (f->sym->attr.intent == INTENT_IN)
 	  spec[spec_len++] = 'r';
@@ -2987,9 +2975,8 @@ create_fn_spec (gfc_symbol *sym, tree fntype)
   return build_type_attribute_variant (fntype, tmp);
 }
 
-
 tree
-gfc_get_function_type (gfc_symbol * sym)
+gfc_get_function_type (gfc_symbol * sym, gfc_actual_arglist *actual_args)
 {
   tree type;
   vec<tree, va_gc> *typelist = NULL;
@@ -3047,6 +3034,10 @@ gfc_get_function_type (gfc_symbol * sym)
 	    vec_safe_push (typelist, build_pointer_type(gfc_charlen_type_node));
 	}
     }
+  if (sym->backend_decl == error_mark_node && actual_args != NULL
+      && sym->formal == NULL && (sym->attr.proc == PROC_EXTERNAL
+				 || sym->attr.proc == PROC_UNKNOWN))
+    gfc_get_formal_from_actual_arglist (sym, actual_args);
 
   /* Build the argument types for the function.  */
   for (f = gfc_sym_get_dummy_args (sym); f; f = f->next)

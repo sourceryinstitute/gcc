@@ -1,5 +1,5 @@
 /* Fold a constant sub-tree into a single node for C-compiler
-   Copyright (C) 1987-2018 Free Software Foundation, Inc.
+   Copyright (C) 1987-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -67,7 +67,8 @@ extern tree fold_build_call_array_loc (location_t, tree, tree, int, tree *);
 #define fold_build_call_array_initializer(T1,T2,N,T4)\
    fold_build_call_array_initializer_loc (UNKNOWN_LOCATION, T1, T2, N, T4)
 extern tree fold_build_call_array_initializer_loc (location_t, tree, tree, int, tree *);
-extern tree get_array_ctor_element_at_index (tree, offset_int);
+extern tree get_array_ctor_element_at_index (tree, offset_int,
+					     unsigned * = NULL);
 extern bool fold_convertible_p (const_tree, const_tree);
 #define fold_convert(T1,T2)\
    fold_convert_loc (UNKNOWN_LOCATION, T1, T2)
@@ -83,7 +84,7 @@ extern bool fold_deferring_overflow_warnings_p (void);
 extern void fold_overflow_warning (const char*, enum warn_strict_overflow_code);
 extern enum tree_code fold_div_compare (enum tree_code, tree, tree,
 					tree *, tree *, bool *);
-extern int operand_equal_p (const_tree, const_tree, unsigned int);
+extern bool operand_equal_p (const_tree, const_tree, unsigned int);
 extern int multiple_of_p (tree, const_tree, const_tree);
 #define omit_one_operand(T1,T2,T3)\
    omit_one_operand_loc (UNKNOWN_LOCATION, T1, T2, T3)
@@ -96,8 +97,18 @@ extern tree omit_two_operands_loc (location_t, tree, tree, tree, tree);
 extern tree invert_truthvalue_loc (location_t, tree);
 extern tree fold_unary_to_constant (enum tree_code, tree, tree);
 extern tree fold_binary_to_constant (enum tree_code, tree, tree, tree);
+extern tree fold_bit_and_mask (tree, tree, enum tree_code,
+			       tree, enum tree_code, tree, tree,
+			       tree, enum tree_code, tree, tree, tree *);
 extern tree fold_read_from_constant_string (tree);
-extern tree int_const_binop (enum tree_code, const_tree, const_tree);
+extern tree fold_read_from_vector (tree, poly_uint64);
+#if GCC_VEC_PERN_INDICES_H
+extern tree fold_vec_perm (tree, tree, tree, const vec_perm_indices &);
+#endif
+extern bool wide_int_binop (wide_int &res, enum tree_code,
+			    const wide_int &arg1, const wide_int &arg2,
+			    signop, wi::overflow_type *);
+extern tree int_const_binop (enum tree_code, const_tree, const_tree, int = 1);
 #define build_fold_addr_expr(T)\
         build_fold_addr_expr_loc (UNKNOWN_LOCATION, (T))
 extern tree build_fold_addr_expr_loc (location_t, tree);
@@ -124,6 +135,7 @@ extern enum tree_code swap_tree_comparison (enum tree_code);
 
 extern bool ptr_difference_const (tree, tree, poly_int64_pod *);
 extern enum tree_code invert_tree_comparison (enum tree_code, bool);
+extern bool inverse_conditions_p (const_tree, const_tree);
 
 extern bool tree_unary_nonzero_warnv_p (enum tree_code, tree, tree, bool *);
 extern bool tree_binary_nonzero_warnv_p (enum tree_code, tree, tree, tree op1,
@@ -180,7 +192,8 @@ extern bool expr_not_equal_to (tree t, const wide_int &);
 extern tree const_unop (enum tree_code, tree, tree);
 extern tree const_binop (enum tree_code, tree, tree, tree);
 extern bool negate_mathfn_p (combined_fn);
-extern const char *c_getstr (tree, unsigned HOST_WIDE_INT *strlen = NULL);
+extern const char *c_getstr (tree, unsigned HOST_WIDE_INT * = NULL);
+extern wide_int tree_nonzero_bits (const_tree);
 
 /* Return OFF converted to a pointer offset type suitable as offset for
    POINTER_PLUS_EXPR.  Use location LOC for this conversion.  */

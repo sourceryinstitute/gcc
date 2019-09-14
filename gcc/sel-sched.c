@@ -1,5 +1,5 @@
 /* Instruction scheduling pass.  Selective scheduler and pipeliner.
-   Copyright (C) 2006-2018 Free Software Foundation, Inc.
+   Copyright (C) 2006-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -28,6 +28,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tm_p.h"
 #include "regs.h"
 #include "cfgbuild.h"
+#include "cfgcleanup.h"
 #include "insn-config.h"
 #include "insn-attr.h"
 #include "params.h"
@@ -472,8 +473,7 @@ static int first_emitted_uid;
 
 /* Set of basic blocks that are forced to start new ebbs.  This is a subset
    of all the ebb heads.  */
-static bitmap_head _forced_ebb_heads;
-bitmap_head *forced_ebb_heads = &_forced_ebb_heads;
+bitmap forced_ebb_heads;
 
 /* Blocks that need to be rescheduled after pipelining.  */
 bitmap blocks_to_reschedule = NULL;
@@ -1102,7 +1102,7 @@ init_regs_for_mode (machine_mode mode)
       if (i >= 0)
         continue;
 
-      if (targetm.hard_regno_call_part_clobbered (cur_reg, mode))
+      if (targetm.hard_regno_call_part_clobbered (NULL, cur_reg, mode))
         SET_HARD_REG_BIT (sel_hrd.regs_for_call_clobbered[mode],
                           cur_reg);
 
@@ -1123,7 +1123,7 @@ init_hard_regs_data (void)
 
   CLEAR_HARD_REG_SET (sel_hrd.regs_ever_used);
   for (cur_reg = 0; cur_reg < FIRST_PSEUDO_REGISTER; cur_reg++)
-    if (df_regs_ever_live_p (cur_reg) || call_used_regs[cur_reg])
+    if (df_regs_ever_live_p (cur_reg) || call_used_or_fixed_reg_p (cur_reg))
       SET_HARD_REG_BIT (sel_hrd.regs_ever_used, cur_reg);
 
   /* Initialize registers that are valid based on mode when this is
@@ -1221,15 +1221,13 @@ mark_unavailable_hard_regs (def_t def, struct reg_rename *reg_rename_p,
      The HARD_REGNO_RENAME_OK covers other cases in condition below.  */
   if (IN_RANGE (REGNO (orig_dest), FIRST_STACK_REG, LAST_STACK_REG)
       && REGNO_REG_SET_P (used_regs, FIRST_STACK_REG))
-    IOR_HARD_REG_SET (reg_rename_p->unavailable_hard_regs,
-                      sel_hrd.stack_regs);
+    reg_rename_p->unavailable_hard_regs |= sel_hrd.stack_regs;
 #endif
 
-  /* If there's a call on this path, make regs from call_used_reg_set
+  /* If there's a call on this path, make regs from call_used_or_fixed_regs
      unavailable.  */
   if (def->crosses_call)
-    IOR_HARD_REG_SET (reg_rename_p->unavailable_hard_regs,
-                      call_used_reg_set);
+    reg_rename_p->unavailable_hard_regs |= call_used_or_fixed_regs;
 
   /* Stop here before reload: we need FRAME_REGS, STACK_REGS, and crosses_call,
      but not register classes.  */
@@ -1238,22 +1236,20 @@ mark_unavailable_hard_regs (def_t def, struct reg_rename *reg_rename_p,
 
   /* Leave regs as 'available' only from the current
      register class.  */
-  COPY_HARD_REG_SET (reg_rename_p->available_for_renaming,
-                     reg_class_contents[cl]);
+  reg_rename_p->available_for_renaming = reg_class_contents[cl];
 
   mode = GET_MODE (orig_dest);
 
   /* Leave only registers available for this mode.  */
   if (!sel_hrd.regs_for_mode_ok[mode])
     init_regs_for_mode (mode);
-  AND_HARD_REG_SET (reg_rename_p->available_for_renaming,
-                    sel_hrd.regs_for_mode[mode]);
+  reg_rename_p->available_for_renaming &= sel_hrd.regs_for_mode[mode];
 
   /* Exclude registers that are partially call clobbered.  */
   if (def->crosses_call
-      && !targetm.hard_regno_call_part_clobbered (regno, mode))
-    AND_COMPL_HARD_REG_SET (reg_rename_p->available_for_renaming,
-                            sel_hrd.regs_for_call_clobbered[mode]);
+      && !targetm.hard_regno_call_part_clobbered (NULL, regno, mode))
+    reg_rename_p->available_for_renaming
+      &= ~sel_hrd.regs_for_call_clobbered[mode];
 
   /* Leave only those that are ok to rename.  */
   EXECUTE_IF_SET_IN_HARD_REG_SET (reg_rename_p->available_for_renaming,
@@ -1274,8 +1270,7 @@ mark_unavailable_hard_regs (def_t def, struct reg_rename *reg_rename_p,
                             cur_reg);
     }
 
-  AND_COMPL_HARD_REG_SET (reg_rename_p->available_for_renaming,
-                          reg_rename_p->unavailable_hard_regs);
+  reg_rename_p->available_for_renaming &= ~reg_rename_p->unavailable_hard_regs;
 
   /* Regno is always ok from the renaming part of view, but it really
      could be in *unavailable_hard_regs already, so set it here instead
@@ -1686,8 +1681,7 @@ find_best_reg_for_expr (expr_t expr, blist_t bnds, bool *is_orig_reg_p)
 
 	  /* Join hard registers unavailable due to register class
 	     restrictions and live range intersection.  */
-	  IOR_HARD_REG_SET (hard_regs_used,
-			    reg_rename_data.unavailable_hard_regs);
+	  hard_regs_used |= reg_rename_data.unavailable_hard_regs;
 
 	  best_reg = choose_best_reg (hard_regs_used, &reg_rename_data,
 				      original_insns, is_orig_reg_p);
@@ -2110,7 +2104,7 @@ implicit_clobber_conflict_p (insn_t through_insn, expr_t expr)
   preprocess_constraints (insn);
   alternative_mask prefrred = get_preferred_alternatives (insn);
   ira_implicitly_set_insn_hard_regs (&temp, prefrred);
-  AND_COMPL_HARD_REG_SET (temp, ira_no_alloc_regs);
+  temp &= ~ira_no_alloc_regs;
 
   /* If any implicit clobber registers intersect with regular ones in
      through_insn, we have a dependency and thus bail out.  */
@@ -2820,10 +2814,12 @@ compute_av_set_at_bb_end (insn_t insn, ilist_t p, int ws)
     FOR_EACH_VEC_ELT (sinfo->succs_ok, is, succ)
       {
         basic_block succ_bb = BLOCK_FOR_INSN (succ);
+	av_set_t av_succ = (is_ineligible_successor (succ, p)
+			    ? NULL
+			    : BB_AV_SET (succ_bb));
 
         gcc_assert (BB_LV_SET_VALID_P (succ_bb));
-        mark_unavailable_targets (av1, BB_AV_SET (succ_bb),
-                                  BB_LV_SET (succ_bb));
+	mark_unavailable_targets (av1, av_succ, BB_LV_SET (succ_bb));
       }
 
   /* Finally, check liveness restrictions on paths leaving the region.  */
@@ -3227,7 +3223,7 @@ get_spec_check_type_for_insn (insn_t insn, expr_t expr)
    ORIGINAL_INSNS list.
 
    REG_RENAME_P denotes the set of hardware registers that
-   can not be used with renaming due to the register class restrictions,
+   cannot be used with renaming due to the register class restrictions,
    mode restrictions and other (the register we'll choose should be
    compatible class with the original uses, shouldn't be in call_used_regs,
    should be HARD_REGNO_RENAME_OK etc).
@@ -3331,8 +3327,6 @@ sel_target_adjust_priority (expr_t expr)
 
   /* If the priority has changed, adjust EXPR_PRIORITY_ADJ accordingly.  */
   EXPR_PRIORITY_ADJ (expr) = new_priority - EXPR_PRIORITY (expr);
-
-  gcc_assert (EXPR_PRIORITY_ADJ (expr) >= 0);
 
   if (sched_verbose >= 4)
     sel_print ("sel_target_adjust_priority: insn %d,  %d+%d = %d.\n",
@@ -5004,12 +4998,16 @@ remove_temp_moveop_nops (bool full_tidying)
    distinguishing between bookkeeping copies and original insns.  */
 static int max_uid_before_move_op = 0;
 
+/* When true, we're always scheduling next insn on the already scheduled code
+   to get the right insn data for the following bundling or other passes.  */
+static int force_next_insn = 0;
+
 /* Remove from AV_VLIW_P all instructions but next when debug counter
    tells us so.  Next instruction is fetched from BNDS.  */
 static void
 remove_insns_for_debug (blist_t bnds, av_set_t *av_vliw_p)
 {
-  if (! dbg_cnt (sel_sched_insn_cnt))
+  if (! dbg_cnt (sel_sched_insn_cnt) || force_next_insn)
     /* Leave only the next insn in av_vliw.  */
     {
       av_set_iterator av_it;
@@ -5845,7 +5843,7 @@ maybe_emit_renaming_copy (rtx_insn *insn,
   bool insn_emitted  = false;
   rtx cur_reg;
 
-  /* Bail out early when expression can not be renamed at all.  */
+  /* Bail out early when expression cannot be renamed at all.  */
   if (!EXPR_SEPARABLE_P (params->c_expr))
     return false;
 
@@ -6433,7 +6431,7 @@ code_motion_path_driver (insn_t insn, av_set_t orig_ops, ilist_t path,
 {
   expr_t expr = NULL;
   basic_block bb = BLOCK_FOR_INSN (insn);
-  insn_t first_insn, bb_tail, before_first;
+  insn_t first_insn, original_insn, bb_tail, before_first;
   bool removed_last_insn = false;
 
   if (sched_verbose >= 6)
@@ -6517,7 +6515,7 @@ code_motion_path_driver (insn_t insn, av_set_t orig_ops, ilist_t path,
   /* It is enough to place only heads and tails of visited basic blocks into
      the PATH.  */
   ilist_add (&path, insn);
-  first_insn = insn;
+  first_insn = original_insn = insn;
   bb_tail = sel_bb_end (bb);
 
   /* Descend the basic block in search of the original expr; this part
@@ -6624,6 +6622,8 @@ code_motion_path_driver (insn_t insn, av_set_t orig_ops, ilist_t path,
         {
           insn = sel_bb_end (bb);
           first_insn = sel_bb_head (bb);
+	  if (first_insn != original_insn)
+	    first_insn = original_insn;
         }
 
       /* Remove bb tail from path.  */
@@ -6942,8 +6942,7 @@ sel_region_init (int rgn)
   memset (reg_rename_tick, 0, sizeof reg_rename_tick);
   reg_rename_this_tick = 0;
 
-  bitmap_initialize (forced_ebb_heads, 0);
-  bitmap_clear (forced_ebb_heads);
+  forced_ebb_heads = BITMAP_ALLOC (NULL);
 
   setup_nop_vinsn ();
   current_copies = BITMAP_ALLOC (NULL);
@@ -7285,7 +7284,7 @@ sel_region_finish (bool reset_sched_cycles_p)
 
   sel_finish_global_and_expr ();
 
-  bitmap_clear (forced_ebb_heads);
+  BITMAP_FREE (forced_ebb_heads);
 
   free_nop_vinsn ();
 
@@ -7641,9 +7640,15 @@ sel_sched_region (int rgn)
   if (schedule_p)
     sel_sched_region_1 ();
   else
-    /* Force initialization of INSN_SCHED_CYCLEs for correct bundling.  */
-    reset_sched_cycles_p = true;
-
+    {
+      /* Schedule always selecting the next insn to make the correct data
+	 for bundling or other later passes.  */
+      pipelining_p = false;
+      reset_sched_cycles_p = false;
+      force_next_insn = 1;
+      sel_sched_region_1 ();
+      force_next_insn = 0;
+    }
   sel_region_finish (reset_sched_cycles_p);
 }
 
@@ -7651,6 +7656,10 @@ sel_sched_region (int rgn)
 static void
 sel_global_init (void)
 {
+  /* Remove empty blocks: their presence can break assumptions elsewhere,
+     e.g. the logic to invoke update_liveness_on_insn in sel_region_init.  */
+  cleanup_cfg (0);
+
   calculate_dominance_info (CDI_DOMINATORS);
   alloc_sched_pools ();
 

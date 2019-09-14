@@ -30,10 +30,6 @@ name`'rtype_qual`_'atype_code` ('rtype` * const restrict retarray,
   index_type rank;
   index_type n;
 
-#ifdef HAVE_BACK_ARG
-  assert (back == 0);
-#endif
-
   rank = GFC_DESCRIPTOR_RANK (array);
   if (rank <= 0)
     runtime_error ("Rank of array needs to be > 0");
@@ -41,7 +37,7 @@ name`'rtype_qual`_'atype_code` ('rtype` * const restrict retarray,
   if (retarray->base_addr == NULL)
     {
       GFC_DIMENSION_SET(retarray->dim[0], 0, rank-1, 1);
-      GFC_DTYPE_COPY_SETRANK(retarray,retarray,1);
+      retarray->dtype.rank = 1;
       retarray->offset = 0;
       retarray->base_addr = xmallocarray (rank, sizeof (rtype_name));
     }
@@ -139,9 +135,16 @@ m'name`'rtype_qual`_'atype_code` ('rtype` * const restrict retarray,
   index_type n;
   int mask_kind;
 
-#ifdef HAVE_BACK_ARG
-  assert (back == 0);
+  if (mask == NULL)
+    {
+#ifdef HAVE_BACK_ARG    
+      name`'rtype_qual`_'atype_code (retarray, array, back, len);
+#else
+      name`'rtype_qual`_'atype_code (retarray, array, len);
 #endif
+      return;
+    }
+
   rank = GFC_DESCRIPTOR_RANK (array);
   if (rank <= 0)
     runtime_error ("Rank of array needs to be > 0");
@@ -149,7 +152,7 @@ m'name`'rtype_qual`_'atype_code` ('rtype` * const restrict retarray,
   if (retarray->base_addr == NULL)
     {
       GFC_DIMENSION_SET(retarray->dim[0], 0, rank - 1, 1);
-      GFC_DTYPE_COPY_SETRANK(retarray,retarray,1);
+      retarray->dtype.rank = 1;
       retarray->offset = 0;
       retarray->base_addr = xmallocarray (rank, sizeof (rtype_name));
     }
@@ -268,7 +271,7 @@ void
   index_type n;
   'rtype_name *dest;
 
-  if (*mask)
+  if (mask == NULL || *mask)
     {
 #ifdef HAVE_BACK_ARG    
       name`'rtype_qual`_'atype_code (retarray, array, back, len);
@@ -286,7 +289,7 @@ void
   if (retarray->base_addr == NULL)
     {
       GFC_DIMENSION_SET(retarray->dim[0], 0, rank-1, 1);
-      GFC_DTYPE_COPY_SETRANK(retarray,retarray,1);
+      retarray->dtype.rank = 1;
       retarray->offset = 0;
       retarray->base_addr = xmallocarray (rank, sizeof (rtype_name));
     }

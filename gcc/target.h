@@ -1,5 +1,5 @@
 /* Data structure definitions for a generic GCC target.
-   Copyright (C) 2001-2018 Free Software Foundation, Inc.
+   Copyright (C) 2001-2019 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify it
    under the terms of the GNU General Public License as published by the
@@ -138,28 +138,34 @@ struct _dep;
 struct ddg;
 
 /* This is defined in cfgloop.h .  */
-struct loop;
+class loop;
 
 /* This is defined in ifcvt.h.  */
 struct noce_if_info;
 
 /* This is defined in tree-ssa-alias.h.  */
-struct ao_ref;
+class ao_ref;
 
 /* This is defined in tree-vectorizer.h.  */
-struct _stmt_vec_info;
+class _stmt_vec_info;
+
+/* This is defined in calls.h.  */
+class function_arg_info;
 
 /* These are defined in tree-vect-stmts.c.  */
-extern tree stmt_vectype (struct _stmt_vec_info *);
-extern bool stmt_in_inner_loop_p (struct _stmt_vec_info *);
+extern tree stmt_vectype (class _stmt_vec_info *);
+extern bool stmt_in_inner_loop_p (class _stmt_vec_info *);
 
 /* Assembler instructions for creating various kinds of integer object.  */
 
 struct asm_int_op
 {
   const char *hi;
+  const char *psi;
   const char *si;
+  const char *pdi;
   const char *di;
+  const char *pti;
   const char *ti;
 };
 

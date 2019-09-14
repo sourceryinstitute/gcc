@@ -1,5 +1,5 @@
 /* Interprocedural Identical Code Folding pass
-   Copyright (C) 2014-2018 Free Software Foundation, Inc.
+   Copyright (C) 2014-2019 Free Software Foundation, Inc.
 
    Contributed by Jan Hubicka <hubicka@ucw.cz> and Martin Liska <mliska@suse.cz>
 
@@ -52,7 +52,6 @@ along with GCC; see the file COPYING3.  If not see
 */
 
 #include "config.h"
-#define INCLUDE_LIST
 #include "system.h"
 #include "coretypes.h"
 #include "backend.h"
@@ -80,6 +79,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "print-tree.h"
 #include "ipa-utils.h"
 #include "ipa-icf-gimple.h"
+#include "fibonacci_heap.h"
 #include "ipa-icf.h"
 #include "stor-layout.h"
 #include "dbgcnt.h"
@@ -138,14 +138,15 @@ sem_usage_pair::sem_usage_pair (sem_item *_item, unsigned int _index)
 }
 
 sem_item::sem_item (sem_item_type _type, bitmap_obstack *stack)
-: type (_type), m_hash (-1), m_hash_set (false)
+: type (_type), referenced_by_count (0), m_hash (-1), m_hash_set (false)
 {
   setup (stack);
 }
 
 sem_item::sem_item (sem_item_type _type, symtab_node *_node,
 		    bitmap_obstack *stack)
-: type (_type), node (_node), m_hash (-1), m_hash_set (false)
+: type (_type), node (_node), referenced_by_count (0), m_hash (-1),
+  m_hash_set (false)
 {
   decl = node->decl;
   setup (stack);
@@ -154,13 +155,18 @@ sem_item::sem_item (sem_item_type _type, symtab_node *_node,
 /* Add reference to a semantic TARGET.  */
 
 void
-sem_item::add_reference (sem_item *target)
+sem_item::add_reference (ref_map *refs,
+			 sem_item *target)
 {
-  refs.safe_push (target);
-  unsigned index = refs.length ();
-  target->usages.safe_push (new sem_usage_pair(this, index));
+  unsigned index = reference_count++;
+  bool existed;
+
+  vec<sem_item *> &v
+    = refs->get_or_insert (new sem_usage_pair (target, index), &existed);
+  v.safe_push (this);
   bitmap_set_bit (target->usage_index_bitmap, index);
   refs_set.add (target->node);
+  ++target->referenced_by_count;
 }
 
 /* Initialize internal data structures. Bitmap STACK is used for
@@ -171,20 +177,14 @@ sem_item::setup (bitmap_obstack *stack)
 {
   gcc_checking_assert (node);
 
-  refs.create (0);
+  reference_count = 0;
   tree_refs.create (0);
-  usages.create (0);
   usage_index_bitmap = BITMAP_ALLOC (stack);
 }
 
 sem_item::~sem_item ()
 {
-  for (unsigned i = 0; i < usages.length (); i++)
-    delete usages[i];
-
-  refs.release ();
   tree_refs.release ();
-  usages.release ();
 
   BITMAP_FREE (usage_index_bitmap);
 }
@@ -199,13 +199,6 @@ sem_item::dump (void)
       fprintf (dump_file, "[%s] %s (tree:%p)\n", type == FUNC ? "func" : "var",
 	       node->dump_name (), (void *) node->decl);
       fprintf (dump_file, "  hash: %u\n", get_hash ());
-      fprintf (dump_file, "  references: ");
-
-      for (unsigned i = 0; i < refs.length (); i++)
-	fprintf (dump_file, "%s%s ", refs[i]->node->name (),
-		 i < refs.length() - 1 ? "," : "");
-
-      fprintf (dump_file, "\n");
     }
 }
 
@@ -226,6 +219,8 @@ void sem_item::set_hash (hashval_t hash)
   m_hash = hash;
   m_hash_set = true;
 }
+
+hash_map<const_tree, hashval_t> sem_item::m_type_hash_cache;
 
 /* Semantic function constructor that uses STACK as bitmap memory stack.  */
 
@@ -303,57 +298,6 @@ sem_function::get_hash (void)
   return m_hash;
 }
 
-/* Return ture if A1 and A2 represent equivalent function attribute lists.
-   Based on comp_type_attributes.  */
-
-bool
-sem_item::compare_attributes (const_tree a1, const_tree a2)
-{
-  const_tree a;
-  if (a1 == a2)
-    return true;
-  for (a = a1; a != NULL_TREE; a = TREE_CHAIN (a))
-    {
-      const struct attribute_spec *as;
-      const_tree attr;
-
-      as = lookup_attribute_spec (get_attribute_name (a));
-      /* TODO: We can introduce as->affects_decl_identity
-	 and as->affects_decl_reference_identity if attribute mismatch
-	 gets a common reason to give up on merging.  It may not be worth
-	 the effort.
-	 For example returns_nonnull affects only references, while
-	 optimize attribute can be ignored because it is already lowered
-	 into flags representation and compared separately.  */
-      if (!as)
-        continue;
-
-      attr = lookup_attribute (as->name, CONST_CAST_TREE (a2));
-      if (!attr || !attribute_value_equal (a, attr))
-        break;
-    }
-  if (!a)
-    {
-      for (a = a2; a != NULL_TREE; a = TREE_CHAIN (a))
-	{
-	  const struct attribute_spec *as;
-
-	  as = lookup_attribute_spec (get_attribute_name (a));
-	  if (!as)
-	    continue;
-
-	  if (!lookup_attribute (as->name, CONST_CAST_TREE (a1)))
-	    break;
-	  /* We don't need to compare trees again, as we did this
-	     already in first loop.  */
-	}
-      if (!a)
-        return true;
-    }
-  /* TODO: As in comp_type_attributes we may want to introduce target hook.  */
-  return false;
-}
-
 /* Compare properties of symbols N1 and N2 that does not affect semantics of
    symbol itself but affects semantics of its references from USED_BY (which
    may be NULL if it is unknown).  If comparsion is false, symbols
@@ -400,8 +344,8 @@ sem_item::compare_referenced_symbol_properties (symtab_node *used_by,
 	    return return_false_with_msg ("inline attributes are different");
 	}
 
-      if (DECL_IS_OPERATOR_NEW (n1->decl)
-	  != DECL_IS_OPERATOR_NEW (n2->decl))
+      if (DECL_IS_OPERATOR_NEW_P (n1->decl)
+	  != DECL_IS_OPERATOR_NEW_P (n2->decl))
 	return return_false_with_msg ("operator new flags are different");
     }
 
@@ -417,7 +361,7 @@ sem_item::compare_referenced_symbol_properties (symtab_node *used_by,
 	  && (!used_by || !is_a <cgraph_node *> (used_by) || address
 	      || opt_for_fn (used_by->decl, flag_devirtualize)))
 	return return_false_with_msg
-		 ("references to virtual tables can not be merged");
+		 ("references to virtual tables cannot be merged");
 
       if (address && DECL_ALIGN (n1->decl) != DECL_ALIGN (n2->decl))
 	return return_false_with_msg ("alignment mismatch");
@@ -427,8 +371,8 @@ sem_item::compare_referenced_symbol_properties (symtab_node *used_by,
 	 variables just compare attributes for references - the codegen
 	 for constructors is affected only by those attributes that we lower
 	 to explicit representation (such as DECL_ALIGN or DECL_SECTION).  */
-      if (!compare_attributes (DECL_ATTRIBUTES (n1->decl),
-			       DECL_ATTRIBUTES (n2->decl)))
+      if (!attribute_list_equal (DECL_ATTRIBUTES (n1->decl),
+				 DECL_ATTRIBUTES (n2->decl)))
 	return return_false_with_msg ("different var decl attributes");
       if (comp_type_attributes (TREE_TYPE (n1->decl),
 				TREE_TYPE (n2->decl)) != 1)
@@ -465,7 +409,7 @@ sem_item::hash_referenced_symbol_properties (symtab_node *ref,
 	  hstate.add_flag (DECL_DISREGARD_INLINE_LIMITS (ref->decl));
 	  hstate.add_flag (DECL_DECLARED_INLINE_P (ref->decl));
 	}
-      hstate.add_flag (DECL_IS_OPERATOR_NEW (ref->decl));
+      hstate.add_flag (DECL_IS_OPERATOR_NEW_P (ref->decl));
     }
   else if (is_a <varpool_node *> (ref))
     {
@@ -538,7 +482,7 @@ sem_function::param_used_p (unsigned int i)
   if (ipa_node_params_sum == NULL)
     return true;
 
-  struct ipa_node_params *parms_info = IPA_NODE_REF (get_node ());
+  class ipa_node_params *parms_info = IPA_NODE_REF (get_node ());
 
   if (vec_safe_length (parms_info->descriptors) <= i)
     return true;
@@ -591,13 +535,12 @@ sem_function::equals_wpa (sem_item *item,
         return return_false_with_msg ("thunk fixed_offset mismatch");
       if (cnode->thunk.virtual_value != cnode2->thunk.virtual_value)
         return return_false_with_msg ("thunk virtual_value mismatch");
+      if (cnode->thunk.indirect_offset != cnode2->thunk.indirect_offset)
+        return return_false_with_msg ("thunk indirect_offset mismatch");
       if (cnode->thunk.this_adjusting != cnode2->thunk.this_adjusting)
         return return_false_with_msg ("thunk this_adjusting mismatch");
       if (cnode->thunk.virtual_offset_p != cnode2->thunk.virtual_offset_p)
         return return_false_with_msg ("thunk virtual_offset_p mismatch");
-      if (cnode->thunk.add_pointer_bounds_args
-	  != cnode2->thunk.add_pointer_bounds_args)
-        return return_false_with_msg ("thunk add_pointer_bounds_args mismatch");
     }
 
   /* Compare special function DECL attributes.  */
@@ -658,7 +601,7 @@ sem_function::equals_wpa (sem_item *item,
   cl_optimization *opt1 = opts_for_fn (decl);
   cl_optimization *opt2 = opts_for_fn (item->decl);
 
-  if (opt1 != opt2 && memcmp (opt1, opt2, sizeof(cl_optimization)))
+  if (opt1 != opt2 && !cl_optimization_option_eq (opt1, opt2))
     {
       if (dump_file && (dump_flags & TDF_DETAILS))
 	{
@@ -712,8 +655,8 @@ sem_function::equals_wpa (sem_item *item,
   if (comp_type_attributes (TREE_TYPE (decl),
 			    TREE_TYPE (item->decl)) != 1)
     return return_false_with_msg ("different type attributes");
-  if (!compare_attributes (DECL_ATTRIBUTES (decl),
-			   DECL_ATTRIBUTES (item->decl)))
+  if (!attribute_list_equal (DECL_ATTRIBUTES (decl),
+			     DECL_ATTRIBUTES (item->decl)))
     return return_false_with_msg ("different decl attributes");
 
   /* The type of THIS pointer type memory location for
@@ -939,8 +882,6 @@ sem_function::equals_private (sem_item *item)
     if(!m_checker->compare_bb (bb_sorted[i], m_compared_func->bb_sorted[i]))
       return return_false();
 
-  dump_message ("All BBs are equal\n");
-
   auto_vec <int> bb_dict;
 
   /* Basic block edges check.  */
@@ -1083,20 +1024,23 @@ sem_function::merge (sem_item *alias_item)
   bool original_address_matters = original->address_matters_p ();
   bool alias_address_matters = alias->address_matters_p ();
 
+  AUTO_DUMP_SCOPE ("merge",
+		   dump_user_location_t::from_function_decl (decl));
+
   if (DECL_EXTERNAL (alias->decl))
     {
-      if (dump_file)
-	fprintf (dump_file, "Not unifying; alias is external.\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_MISSED_OPTIMIZATION,
+		     "Not unifying; alias is external.\n");
       return false;
     }
 
   if (DECL_NO_INLINE_WARNING_P (original->decl)
       != DECL_NO_INLINE_WARNING_P (alias->decl))
     {
-      if (dump_file)
-	fprintf (dump_file,
-		 "Not unifying; "
-		 "DECL_NO_INLINE_WARNING mismatch.\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_MISSED_OPTIMIZATION,
+		     "Not unifying; DECL_NO_INLINE_WARNING mismatch.\n");
       return false;
     }
 
@@ -1106,21 +1050,20 @@ sem_function::merge (sem_item *alias_item)
        || (DECL_SECTION_NAME (alias->decl) && !alias->implicit_section))
       && DECL_SECTION_NAME (original->decl) != DECL_SECTION_NAME (alias->decl))
     {
-      if (dump_file)
-	fprintf (dump_file,
-		 "Not unifying; "
-		 "original and alias are in different sections.\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_MISSED_OPTIMIZATION,
+		     "Not unifying; "
+		     "original and alias are in different sections.\n");
       return false;
     }
 
   if (!original->in_same_comdat_group_p (alias)
       || original->comdat_local_p ())
     {
-      if (dump_file)
-	fprintf (dump_file,
-		 "Not unifying; alias nor wrapper cannot be created; "
-		 "across comdat group boundary\n\n");
-
+      if (dump_enabled_p ())
+	dump_printf (MSG_MISSED_OPTIMIZATION,
+		     "Not unifying; alias nor wrapper cannot be created; "
+		     "across comdat group boundary\n");
       return false;
     }
 
@@ -1130,23 +1073,23 @@ sem_function::merge (sem_item *alias_item)
   if (original->can_be_discarded_p ())
     original_discardable = true;
   /* Also consider case where we have resolution info and we know that
-     original's definition is not going to be used.  In this case we can not
+     original's definition is not going to be used.  In this case we cannot
      create alias to original.  */
   if (node->resolution != LDPR_UNKNOWN
       && !decl_binds_to_current_def_p (node->decl))
     original_discardable = original_discarded = true;
 
   /* Creating a symtab alias is the optimal way to merge.
-     It however can not be used in the following cases:
+     It however cannot be used in the following cases:
 
      1) if ORIGINAL and ALIAS may be possibly compared for address equality.
      2) if ORIGINAL is in a section that may be discarded by linker or if
-	it is an external functions where we can not create an alias
+	it is an external functions where we cannot create an alias
 	(ORIGINAL_DISCARDABLE)
      3) if target do not support symbol aliases.
      4) original and alias lie in different comdat groups.
 
-     If we can not produce alias, we will turn ALIAS into WRAPPER of ORIGINAL
+     If we cannot produce alias, we will turn ALIAS into WRAPPER of ORIGINAL
      and/or redirect all callers from ALIAS to ORIGINAL.  */
   if ((original_address_matters && alias_address_matters)
       || (original_discardable
@@ -1165,10 +1108,10 @@ sem_function::merge (sem_item *alias_item)
       if (!sem_item::compare_referenced_symbol_properties (NULL, original, alias,
 							   alias->address_taken))
         {
-	  if (dump_file)
-	    fprintf (dump_file,
-		     "Wrapper cannot be created because referenced symbol "
-		     "properties mismatch\n");
+	  if (dump_enabled_p ())
+	    dump_printf (MSG_MISSED_OPTIMIZATION,
+			 "Wrapper cannot be created because referenced symbol "
+			 "properties mismatch\n");
         }
       /* Do not turn function in one comdat group into wrapper to another
 	 comdat group. Other compiler producing the body of the
@@ -1179,39 +1122,41 @@ sem_function::merge (sem_item *alias_item)
 	       && (DECL_COMDAT_GROUP (alias->decl)
 		   != DECL_COMDAT_GROUP (original->decl)))
 	{
-	  if (dump_file)
-	    fprintf (dump_file,
-		     "Wrapper cannot be created because of COMDAT\n");
+	  if (dump_enabled_p ())
+	    dump_printf (MSG_MISSED_OPTIMIZATION,
+			 "Wrapper cannot be created because of COMDAT\n");
 	}
       else if (DECL_STATIC_CHAIN (alias->decl)
 	       || DECL_STATIC_CHAIN (original->decl))
         {
-	  if (dump_file)
-	    fprintf (dump_file,
-		     "Cannot create wrapper of nested function.\n");
+	  if (dump_enabled_p ())
+	    dump_printf (MSG_MISSED_OPTIMIZATION,
+			 "Cannot create wrapper of nested function.\n");
         }
       /* TODO: We can also deal with variadic functions never calling
 	 VA_START.  */
       else if (stdarg_p (TREE_TYPE (alias->decl)))
 	{
-	  if (dump_file)
-	    fprintf (dump_file,
-		     "can not create wrapper of stdarg function.\n");
+	  if (dump_enabled_p ())
+	    dump_printf (MSG_MISSED_OPTIMIZATION,
+			 "cannot create wrapper of stdarg function.\n");
 	}
       else if (ipa_fn_summaries
+	       && ipa_fn_summaries->get (alias) != NULL
 	       && ipa_fn_summaries->get (alias)->self_size <= 2)
 	{
-	  if (dump_file)
-	    fprintf (dump_file, "Wrapper creation is not "
-		     "profitable (function is too small).\n");
+	  if (dump_enabled_p ())
+	    dump_printf (MSG_MISSED_OPTIMIZATION, "Wrapper creation is not "
+			 "profitable (function is too small).\n");
 	}
       /* If user paid attention to mark function noinline, assume it is
-	 somewhat special and do not try to turn it into a wrapper that can
-	 not be undone by inliner.  */
+	 somewhat special and do not try to turn it into a wrapper that
+	 cannot be undone by inliner.  */
       else if (lookup_attribute ("noinline", DECL_ATTRIBUTES (alias->decl)))
 	{
-	  if (dump_file)
-	    fprintf (dump_file, "Wrappers are not created for noinline.\n");
+	  if (dump_enabled_p ())
+	    dump_printf (MSG_MISSED_OPTIMIZATION,
+			 "Wrappers are not created for noinline.\n");
 	}
       else
         create_wrapper = true;
@@ -1220,8 +1165,7 @@ sem_function::merge (sem_item *alias_item)
 	 are not interposable.  */
       redirect_callers
 	= alias->get_availability () > AVAIL_INTERPOSABLE
-	  && original->get_availability () > AVAIL_INTERPOSABLE
-	  && !alias->instrumented_version;
+	  && original->get_availability () > AVAIL_INTERPOSABLE;
       /* TODO: We can redirect, but we need to produce alias of ORIGINAL
 	 with proper properties.  */
       if (!sem_item::compare_referenced_symbol_properties (NULL, original, alias,
@@ -1230,9 +1174,10 @@ sem_function::merge (sem_item *alias_item)
 
       if (!redirect_callers && !create_wrapper)
 	{
-	  if (dump_file)
-	    fprintf (dump_file, "Not unifying; can not redirect callers nor "
-		     "produce wrapper\n\n");
+	  if (dump_enabled_p ())
+	    dump_printf (MSG_MISSED_OPTIMIZATION,
+			 "Not unifying; cannot redirect callers nor "
+			 "produce wrapper\n");
 	  return false;
 	}
 
@@ -1240,7 +1185,7 @@ sem_function::merge (sem_item *alias_item)
 	 If ORIGINAL is interposable, we need to call a local alias.
 	 Also produce local alias (if possible) as an optimization.
 
-	 Local aliases can not be created inside comdat groups because that
+	 Local aliases cannot be created inside comdat groups because that
 	 prevents inlining.  */
       if (!original_discardable && !original->get_comdat_group ())
 	{
@@ -1250,28 +1195,29 @@ sem_function::merge (sem_item *alias_item)
 	      && original->get_availability () > AVAIL_INTERPOSABLE)
 	    local_original = original;
 	}
-      /* If we can not use local alias, fallback to the original
+      /* If we cannot use local alias, fallback to the original
 	 when possible.  */
       else if (original->get_availability () > AVAIL_INTERPOSABLE)
 	local_original = original;
 
-      /* If original is COMDAT local, we can not really redirect calls outside
+      /* If original is COMDAT local, we cannot really redirect calls outside
 	 of its comdat group to it.  */
       if (original->comdat_local_p ())
         redirect_callers = false;
       if (!local_original)
 	{
-	  if (dump_file)
-	    fprintf (dump_file, "Not unifying; "
-		     "can not produce local alias.\n\n");
+	  if (dump_enabled_p ())
+	    dump_printf (MSG_MISSED_OPTIMIZATION,
+			 "Not unifying; cannot produce local alias.\n");
 	  return false;
 	}
 
       if (!redirect_callers && !create_wrapper)
 	{
-	  if (dump_file)
-	    fprintf (dump_file, "Not unifying; "
-		     "can not redirect callers nor produce a wrapper\n\n");
+	  if (dump_enabled_p ())
+	    dump_printf (MSG_MISSED_OPTIMIZATION,
+			 "Not unifying; "
+			 "cannot redirect callers nor produce a wrapper\n");
 	  return false;
 	}
       if (!create_wrapper
@@ -1279,9 +1225,10 @@ sem_function::merge (sem_item *alias_item)
 						  NULL, true)
 	  && !alias->can_remove_if_no_direct_calls_p ())
 	{
-	  if (dump_file)
-	    fprintf (dump_file, "Not unifying; can not make wrapper and "
-		     "function has other uses than direct calls\n\n");
+	  if (dump_enabled_p ())
+	    dump_printf (MSG_MISSED_OPTIMIZATION,
+			 "Not unifying; cannot make wrapper and "
+			 "function has other uses than direct calls\n");
 	  return false;
 	}
     }
@@ -1297,9 +1244,10 @@ sem_function::merge (sem_item *alias_item)
 	  alias->icf_merged = true;
 	  local_original->icf_merged = true;
 
-	  if (dump_file && nredirected)
-	    fprintf (dump_file, "%i local calls have been "
-		     "redirected.\n", nredirected);
+	  if (dump_enabled_p ())
+	    dump_printf (MSG_NOTE,
+			 "%i local calls have been "
+			 "redirected.\n", nredirected);
 	}
 
       /* If all callers was redirected, do not produce wrapper.  */
@@ -1331,8 +1279,9 @@ sem_function::merge (sem_item *alias_item)
       original->call_for_symbol_thunks_and_aliases
 	 (set_local, (void *)(size_t) original->local_p (), true);
 
-      if (dump_file)
-	fprintf (dump_file, "Unified; Function alias has been created.\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_OPTIMIZED_LOCATIONS,
+		     "Unified; Function alias has been created.\n");
     }
   if (create_wrapper)
     {
@@ -1344,8 +1293,9 @@ sem_function::merge (sem_item *alias_item)
       ipa_merge_profiles (original, alias, true);
       alias->create_wrapper (local_original);
 
-      if (dump_file)
-	fprintf (dump_file, "Unified; Wrapper has been created.\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_OPTIMIZED_LOCATIONS,
+		     "Unified; Wrapper has been created.\n");
     }
 
   /* It's possible that redirection can hit thunks that block
@@ -1358,8 +1308,8 @@ sem_function::merge (sem_item *alias_item)
      on this optimization.  */
   if (original->merged_comdat && !alias->merged_comdat)
     {
-      if (dump_file)
-	fprintf (dump_file, "Dropping merged_comdat flag.\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_NOTE, "Dropping merged_comdat flag.\n");
       if (local_original)
         local_original->merged_comdat = false;
       original->merged_comdat = false;
@@ -1372,8 +1322,9 @@ sem_function::merge (sem_item *alias_item)
       alias->reset ();
       alias->body_removed = true;
       alias->icf_merged = true;
-      if (dump_file)
-	fprintf (dump_file, "Unified; Function body was removed.\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_OPTIMIZED_LOCATIONS,
+		     "Unified; Function body was removed.\n");
     }
 
   return true;
@@ -1454,7 +1405,6 @@ sem_function::init (void)
       hstate.add_hwi (cnode->thunk.virtual_value);
       hstate.add_flag (cnode->thunk.this_adjusting);
       hstate.add_flag (cnode->thunk.virtual_offset_p);
-      hstate.add_flag (cnode->thunk.add_pointer_bounds_args);
       gcode_hash = hstate.end ();
     }
 }
@@ -1580,8 +1530,14 @@ sem_item::add_type (const_tree type, inchash::hash &hstate)
     }
   else if (RECORD_OR_UNION_TYPE_P (type))
     {
-      gcc_checking_assert (COMPLETE_TYPE_P (type));
-      hashval_t *val = optimizer->m_type_hash_cache.get (type);
+      /* Incomplete types must be skipped here.  */
+      if (!COMPLETE_TYPE_P (type))
+	{
+	  hstate.add_int (RECORD_TYPE);
+	  return;
+	}
+
+      hashval_t *val = m_type_hash_cache.get (type);
 
       if (!val)
 	{
@@ -1591,8 +1547,6 @@ sem_item::add_type (const_tree type, inchash::hash &hstate)
 	  hashval_t hash;
 
 	  hstate2.add_int (RECORD_TYPE);
-	  gcc_assert (COMPLETE_TYPE_P (type));
-
 	  for (f = TYPE_FIELDS (type), nf = 0; f; f = TREE_CHAIN (f))
 	    if (TREE_CODE (f) == FIELD_DECL)
 	      {
@@ -1603,7 +1557,7 @@ sem_item::add_type (const_tree type, inchash::hash &hstate)
 	  hstate2.add_int (nf);
 	  hash = hstate2.end ();
 	  hstate.add_hwi (hash);
-	  optimizer->m_type_hash_cache.put (type, hash);
+	  m_type_hash_cache.put (type, hash);
 	}
       else
         hstate.add_hwi (*val);
@@ -1979,8 +1933,8 @@ sem_variable::equals (tree t1, tree t2)
 
 	/* Type of the offset on MEM_REF does not matter.  */
 	return return_with_debug (sem_variable::equals (x1, x2)
-			          && wi::to_offset  (y1)
-				     == wi::to_offset  (y2));
+			          && known_eq (wi::to_poly_offset (y1),
+					       wi::to_poly_offset (y2)));
       }
     case ADDR_EXPR:
     case FDESC_EXPR:
@@ -2141,18 +2095,21 @@ sem_variable::merge (sem_item *alias_item)
 {
   gcc_assert (alias_item->type == VAR);
 
+  AUTO_DUMP_SCOPE ("merge",
+		   dump_user_location_t::from_function_decl (decl));
   if (!sem_item::target_supports_symbol_aliases_p ())
     {
-      if (dump_file)
-	fprintf (dump_file, "Not unifying; "
-		 "Symbol aliases are not supported by target\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_MISSED_OPTIMIZATION, "Not unifying; "
+		     "Symbol aliases are not supported by target\n");
       return false;
     }
 
   if (DECL_EXTERNAL (alias_item->decl))
     {
-      if (dump_file)
-	fprintf (dump_file, "Not unifying; alias is external.\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_MISSED_OPTIMIZATION,
+		     "Not unifying; alias is external.\n");
       return false;
     }
 
@@ -2167,7 +2124,7 @@ sem_variable::merge (sem_item *alias_item)
   /* See if original is in a section that can be discarded if the main
      symbol is not used.
      Also consider case where we have resolution info and we know that
-     original's definition is not going to be used.  In this case we can not
+     original's definition is not going to be used.  In this case we cannot
      create alias to original.  */
   if (original->can_be_discarded_p ()
       || (node->resolution != LDPR_UNKNOWN
@@ -2184,9 +2141,9 @@ sem_variable::merge (sem_item *alias_item)
   if (DECL_IN_CONSTANT_POOL (alias->decl)
       || DECL_IN_CONSTANT_POOL (original->decl))
     {
-      if (dump_file)
-	fprintf (dump_file,
-		 "Not unifying; constant pool variables.\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_MISSED_OPTIMIZATION,
+		     "Not unifying; constant pool variables.\n");
       return false;
     }
 
@@ -2196,45 +2153,48 @@ sem_variable::merge (sem_item *alias_item)
        || (DECL_SECTION_NAME (alias->decl) && !alias->implicit_section))
       && DECL_SECTION_NAME (original->decl) != DECL_SECTION_NAME (alias->decl))
     {
-      if (dump_file)
-	fprintf (dump_file,
-		 "Not unifying; "
-		 "original and alias are in different sections.\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_MISSED_OPTIMIZATION,
+		     "Not unifying; "
+		     "original and alias are in different sections.\n");
       return false;
     }
 
-  /* We can not merge if address comparsion metters.  */
+  /* We cannot merge if address comparsion metters.  */
   if (alias_address_matters && flag_merge_constants < 2)
     {
-      if (dump_file)
-	fprintf (dump_file,
-		 "Not unifying; address of original may be compared.\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_MISSED_OPTIMIZATION,
+		     "Not unifying; address of original may be compared.\n");
       return false;
     }
 
   if (DECL_ALIGN (original->decl) < DECL_ALIGN (alias->decl))
     {
-      if (dump_file)
-	fprintf (dump_file, "Not unifying; "
-		 "original and alias have incompatible alignments\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_MISSED_OPTIMIZATION,
+		     "Not unifying; "
+		     "original and alias have incompatible alignments\n");
 
       return false;
     }
 
   if (DECL_COMDAT_GROUP (original->decl) != DECL_COMDAT_GROUP (alias->decl))
     {
-      if (dump_file)
-	fprintf (dump_file, "Not unifying; alias cannot be created; "
-		 "across comdat group boundary\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_MISSED_OPTIMIZATION,
+		     "Not unifying; alias cannot be created; "
+		     "across comdat group boundary\n");
 
       return false;
     }
 
   if (original_discardable)
     {
-      if (dump_file)
-	fprintf (dump_file, "Not unifying; alias cannot be created; "
-		 "target is discardable\n\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_MISSED_OPTIMIZATION,
+		     "Not unifying; alias cannot be created; "
+		     "target is discardable\n");
 
       return false;
     }
@@ -2248,7 +2208,6 @@ sem_variable::merge (sem_item *alias_item)
       DECL_INITIAL (alias->decl) = NULL;
       ((symtab_node *)alias)->call_for_symbol_and_aliases (clear_decl_rtl,
 							   NULL, true);
-      alias->need_bounds_init = false;
       alias->remove_all_references ();
       if (TREE_ADDRESSABLE (alias->decl))
         original->call_for_symbol_and_aliases (set_addressable, NULL, true);
@@ -2256,8 +2215,9 @@ sem_variable::merge (sem_item *alias_item)
       varpool_node::create_alias (alias_var->decl, decl);
       alias->resolve_alias (original);
 
-      if (dump_file)
-	fprintf (dump_file, "Unified; Variable alias has been created.\n");
+      if (dump_enabled_p ())
+	dump_printf (MSG_OPTIMIZED_LOCATIONS,
+		     "Unified; Variable alias has been created.\n");
 
       return true;
     }
@@ -2278,7 +2238,7 @@ unsigned int sem_item_optimizer::class_id = 0;
 
 sem_item_optimizer::sem_item_optimizer ()
 : worklist (0), m_classes (0), m_classes_count (0), m_cgraph_node_hooks (NULL),
-  m_varpool_node_hooks (NULL), m_merged_variables ()
+  m_varpool_node_hooks (NULL), m_merged_variables (), m_references ()
 {
   m_items.create (0);
   bitmap_obstack_initialize (&m_bmstack);
@@ -2389,12 +2349,7 @@ sem_item_optimizer::read_section (lto_file_decl_data *file_data,
       node = lto_symtab_encoder_deref (encoder, index);
 
       hashval_t hash = streamer_read_uhwi (&ib_main);
-
       gcc_assert (node->definition);
-
-      if (dump_file)
-	fprintf (dump_file, "Symbol added: %s (tree: %p)\n",
-		 node->dump_asm_name (), (void *) node->decl);
 
       if (is_a<cgraph_node *> (node))
 	{
@@ -2523,7 +2478,7 @@ sem_item_optimizer::varpool_removal_hook (varpool_node *node, void *data)
 void
 sem_item_optimizer::remove_symtab_node (symtab_node *node)
 {
-  gcc_assert (!m_classes.elements ());
+  gcc_assert (m_classes.is_empty ());
 
   m_removed_items_set.add (node);
 }
@@ -2604,9 +2559,6 @@ sem_item_optimizer::execute (void)
     fprintf (dump_file, "Dump after hash based groups\n");
   dump_cong_classes ();
 
-  for (unsigned int i = 0; i < m_items.length(); i++)
-    m_items[i]->init_wpa ();
-
   subdivide_classes_by_equality (true);
 
   if (dump_file)
@@ -2659,15 +2611,7 @@ sem_item_optimizer::parse_funcs_and_vars (void)
 	{
 	  m_items.safe_push (f);
 	  m_symtab_node_map.put (cnode, f);
-
-	  if (dump_file)
-	    fprintf (dump_file, "Parsed function:%s\n", f->node->asm_name ());
-
-	  if (dump_file && (dump_flags & TDF_DETAILS))
-	    f->dump_to_file (dump_file);
 	}
-      else if (dump_file)
-	fprintf (dump_file, "Not parsed function:%s\n", cnode->asm_name ());
     }
 
   varpool_node *vnode;
@@ -2692,6 +2636,7 @@ sem_item_optimizer::add_item_to_class (congruence_class *cls, sem_item *item)
 {
   item->index_in_class = cls->members.length ();
   cls->members.safe_push (item);
+  cls->referenced_by_count += item->referenced_by_count;
   item->cls = cls;
 }
 
@@ -2793,7 +2738,7 @@ sem_item_optimizer::build_graph (void)
 	      sem_item **slot = m_symtab_node_map.get
 		(e->callee->ultimate_alias_target ());
 	      if (slot)
-		item->add_reference (*slot);
+		item->add_reference (&m_references, *slot);
 
 	      e = e->next_callee;
 	    }
@@ -2805,7 +2750,7 @@ sem_item_optimizer::build_graph (void)
 	  sem_item **slot = m_symtab_node_map.get
 	    (ref->referred->ultimate_alias_target ());
 	  if (slot)
-	    item->add_reference (*slot);
+	    item->add_reference (&m_references, *slot);
 	}
     }
 }
@@ -2816,20 +2761,20 @@ sem_item_optimizer::build_graph (void)
 void
 sem_item_optimizer::parse_nonsingleton_classes (void)
 {
-  unsigned int init_called_count = 0;
+  unsigned int counter = 0;
 
   for (unsigned i = 0; i < m_items.length (); i++)
     if (m_items[i]->cls->members.length () > 1)
       {
 	m_items[i]->init ();
-	init_called_count++;
+	++counter;
       }
 
   if (dump_file)
-    fprintf (dump_file, "Init called for %u items (%.2f%%).\n",
-	     init_called_count,
-	     m_items.length () ? 100.0f * init_called_count / m_items.length ()
-			       : 0.0f);
+    {
+      float f = m_items.length () ? 100.0f * counter / m_items.length () : 0.0f;
+      fprintf (dump_file, "Init called for %u items (%.2f%%).\n", counter, f);
+    }
 }
 
 /* Equality function for semantic items is used to subdivide existing
@@ -3035,13 +2980,6 @@ sem_item_optimizer::verify_classes (void)
 
 	      gcc_assert (item);
 	      gcc_assert (item->cls == cls);
-
-	      for (unsigned k = 0; k < item->usages.length (); k++)
-		{
-		  sem_usage_pair *usage = item->usages[k];
-		  gcc_assert (usage->item->index_in_class
-			      < usage->item->cls->members.length ());
-		}
 	    }
 	}
     }
@@ -3154,16 +3092,33 @@ sem_item_optimizer::traverse_congruence_split (congruence_class * const &cls,
       /* Release class if not presented in work list.  */
       if (!in_worklist)
 	delete cls;
+
+      return true;
     }
 
+  return false;
+}
 
-  return true;
+/* Compare function for sorting pairs in do_congruence_step_f.  */
+
+int
+sem_item_optimizer::sort_congruence_split (const void *a_, const void *b_)
+{
+  const std::pair<congruence_class *, bitmap> *a
+    = (const std::pair<congruence_class *, bitmap> *)a_;
+  const std::pair<congruence_class *, bitmap> *b
+    = (const std::pair<congruence_class *, bitmap> *)b_;
+  if (a->first->id < b->first->id)
+    return -1;
+  else if (a->first->id > b->first->id)
+    return 1;
+  return 0;
 }
 
 /* Tests if a class CLS used as INDEXth splits any congruence classes.
    Bitmap stack BMSTACK is used for bitmap allocation.  */
 
-void
+bool
 sem_item_optimizer::do_congruence_step_for_index (congruence_class *cls,
 						  unsigned int index)
 {
@@ -3172,45 +3127,57 @@ sem_item_optimizer::do_congruence_step_for_index (congruence_class *cls,
   for (unsigned int i = 0; i < cls->members.length (); i++)
     {
       sem_item *item = cls->members[i];
+      sem_usage_pair needle (item, index);
+      vec<sem_item *> *callers = m_references.get (&needle);
+      if (callers == NULL)
+	continue;
 
-      /* Iterate all usages that have INDEX as usage of the item.  */
-      for (unsigned int j = 0; j < item->usages.length (); j++)
+      for (unsigned int j = 0; j < callers->length (); j++)
 	{
-	  sem_usage_pair *usage = item->usages[j];
-
-	  if (usage->index != index)
+	  sem_item *caller = (*callers)[j];
+	  if (caller->cls->members.length () < 2)
 	    continue;
-
-	  bitmap *slot = split_map.get (usage->item->cls);
+	  bitmap *slot = split_map.get (caller->cls);
 	  bitmap b;
 
 	  if(!slot)
 	    {
 	      b = BITMAP_ALLOC (&m_bmstack);
-	      split_map.put (usage->item->cls, b);
+	      split_map.put (caller->cls, b);
 	    }
 	  else
 	    b = *slot;
 
-	  gcc_checking_assert (usage->item->cls);
-	  gcc_checking_assert (usage->item->index_in_class
-			       < usage->item->cls->members.length ());
+	  gcc_checking_assert (caller->cls);
+	  gcc_checking_assert (caller->index_in_class
+			       < caller->cls->members.length ());
 
-	  bitmap_set_bit (b, usage->item->index_in_class);
+	  bitmap_set_bit (b, caller->index_in_class);
 	}
     }
+
+  auto_vec<std::pair<congruence_class *, bitmap> > to_split;
+  to_split.reserve_exact (split_map.elements ());
+  for (hash_map <congruence_class *, bitmap>::iterator i = split_map.begin ();
+       i != split_map.end (); ++i)
+    to_split.safe_push (*i);
+  to_split.qsort (sort_congruence_split);
 
   traverse_split_pair pair;
   pair.optimizer = this;
   pair.cls = cls;
 
   splitter_class_removed = false;
-  split_map.traverse <traverse_split_pair *,
-		      sem_item_optimizer::traverse_congruence_split> (&pair);
+  bool r = false;
+  for (unsigned i = 0; i < to_split.length (); ++i)
+    r |= traverse_congruence_split (to_split[i].first, to_split[i].second,
+				    &pair);
 
   /* Bitmap clean-up.  */
   split_map.traverse <traverse_split_pair *,
 		      sem_item_optimizer::release_split_map> (NULL);
+
+  return r;
 }
 
 /* Every usage of a congruence class CLS is a candidate that can split the
@@ -3231,9 +3198,9 @@ sem_item_optimizer::do_congruence_step (congruence_class *cls)
   EXECUTE_IF_SET_IN_BITMAP (usage, 0, i, bi)
   {
     if (dump_file && (dump_flags & TDF_DETAILS))
-      fprintf (dump_file, "  processing congruence step for class: %u, "
-	       "index: %u\n", cls->id, i);
-
+      fprintf (dump_file, "  processing congruence step for class: %u "
+	       "(%u items, %u references), index: %u\n", cls->id,
+	       cls->referenced_by_count, cls->members.length (), i);
     do_congruence_step_for_index (cls, i);
 
     if (splitter_class_removed)
@@ -3253,7 +3220,7 @@ sem_item_optimizer::worklist_push (congruence_class *cls)
     return;
 
   cls->in_worklist = true;
-  worklist.push_back (cls);
+  worklist.insert (cls->referenced_by_count, cls);
 }
 
 /* Pops a class from worklist. */
@@ -3265,8 +3232,7 @@ sem_item_optimizer::worklist_pop (void)
 
   while (!worklist.empty ())
     {
-      cls = worklist.front ();
-      worklist.pop_front ();
+      cls = worklist.extract_min ();
       if (cls->in_worklist)
 	{
 	  cls->in_worklist = false;
@@ -3298,7 +3264,7 @@ sem_item_optimizer::process_cong_reduction (void)
 
   if (dump_file)
     fprintf (dump_file, "Worklist has been filled with: %lu\n",
-	     (unsigned long) worklist.size ());
+	     (unsigned long) worklist.nodes ());
 
   if (dump_file && (dump_flags & TDF_DETAILS))
     fprintf (dump_file, "Congruence class reduction\n");
@@ -3325,13 +3291,9 @@ sem_item_optimizer::dump_cong_classes (void)
   if (!dump_file)
     return;
 
-  fprintf (dump_file,
-	   "Congruence classes: %u (unique hash values: %lu), with total: "
-	   "%u items\n", m_classes_count,
-	   (unsigned long) m_classes.elements (), m_items.length ());
-
   /* Histogram calculation.  */
   unsigned int max_index = 0;
+  unsigned int single_element_classes = 0;
   unsigned int* histogram = XCNEWVEC (unsigned int, m_items.length () + 1);
 
   for (hash_table<congruence_class_hash>::iterator it = m_classes.begin ();
@@ -3343,21 +3305,25 @@ sem_item_optimizer::dump_cong_classes (void)
 
 	if (c > max_index)
 	  max_index = c;
+
+	if (c == 1)
+	  ++single_element_classes;
       }
 
   fprintf (dump_file,
+	   "Congruence classes: %lu with total: %u items (in a non-singular "
+	   "class: %u)\n", (unsigned long) m_classes.elements (),
+	   m_items.length (), m_items.length () - single_element_classes);
+  fprintf (dump_file,
 	   "Class size histogram [num of members]: number of classe number "
 	   "of classess\n");
-
   for (unsigned int i = 0; i <= max_index; i++)
     if (histogram[i])
-      fprintf (dump_file, "[%u]: %u classes\n", i, histogram[i]);
-
-  fprintf (dump_file, "\n\n");
+      fprintf (dump_file, "%6u: %6u\n", i, histogram[i]);
 
   if (dump_flags & TDF_DETAILS)
-  for (hash_table<congruence_class_hash>::iterator it = m_classes.begin ();
-       it != m_classes.end (); ++it)
+    for (hash_table<congruence_class_hash>::iterator it = m_classes.begin ();
+	 it != m_classes.end (); ++it)
       {
 	fprintf (dump_file, "  group: with %u classes:\n",
 		 (*it)->classes.length ());
@@ -3528,23 +3494,26 @@ sem_item_optimizer::merge_classes (unsigned int prev_class_count)
 	    if (alias == source)
 	      continue;
 
-	    if (dump_file)
+	    dump_user_location_t loc
+	      = dump_user_location_t::from_function_decl (source->decl);
+	    if (dump_enabled_p ())
 	      {
-		fprintf (dump_file, "Semantic equality hit:%s->%s\n",
-			 xstrdup_for_dump (source->node->name ()),
-			 xstrdup_for_dump (alias->node->name ()));
-		fprintf (dump_file, "Assembler symbol names:%s->%s\n",
-			 xstrdup_for_dump (source->node->asm_name ()),
-			 xstrdup_for_dump (alias->node->asm_name ()));
+		dump_printf_loc (MSG_OPTIMIZED_LOCATIONS, loc,
+				 "Semantic equality hit:%s->%s\n",
+				 xstrdup_for_dump (source->node->name ()),
+				 xstrdup_for_dump (alias->node->name ()));
+		dump_printf_loc (MSG_OPTIMIZED_LOCATIONS, loc,
+				 "Assembler symbol names:%s->%s\n",
+				 xstrdup_for_dump (source->node->asm_name ()),
+				 xstrdup_for_dump (alias->node->asm_name ()));
 	      }
 
 	    if (lookup_attribute ("no_icf", DECL_ATTRIBUTES (alias->decl)))
 	      {
-	        if (dump_file)
-		  fprintf (dump_file,
-			   "Merge operation is skipped due to no_icf "
-			   "attribute.\n\n");
-
+		if (dump_enabled_p ())
+		  dump_printf_loc (MSG_OPTIMIZED_LOCATIONS, loc,
+				   "Merge operation is skipped due to no_icf "
+				   "attribute.\n");
 		continue;
 	      }
 
@@ -3673,7 +3642,7 @@ bool
 congruence_class::is_class_used (void)
 {
   for (unsigned int i = 0; i < members.length (); i++)
-    if (members[i]->usages.length ())
+    if (members[i]->referenced_by_count)
       return true;
 
   return false;

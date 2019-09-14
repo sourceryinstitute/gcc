@@ -1,5 +1,5 @@
 /* Natural loop analysis code for GNU compiler.
-   Copyright (C) 2002-2018 Free Software Foundation, Inc.
+   Copyright (C) 2002-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -41,7 +41,7 @@ struct target_cfgloop *this_target_cfgloop = &default_target_cfgloop;
 /* Checks whether BB is executed exactly once in each LOOP iteration.  */
 
 bool
-just_once_each_iteration_p (const struct loop *loop, const_basic_block bb)
+just_once_each_iteration_p (const class loop *loop, const_basic_block bb)
 {
   /* It must be executed at least once each iteration.  */
   if (!dominated_by_p (CDI_DOMINATORS, loop->latch, bb))
@@ -81,7 +81,7 @@ mark_irreducible_loops (void)
   unsigned depth;
   struct graph *g;
   int num = number_of_loops (cfun);
-  struct loop *cloop;
+  class loop *cloop;
   bool irred_loop_found = false;
   int i;
 
@@ -173,7 +173,7 @@ mark_irreducible_loops (void)
 
 /* Counts number of insns inside LOOP.  */
 int
-num_loop_insns (const struct loop *loop)
+num_loop_insns (const class loop *loop)
 {
   basic_block *bbs, bb;
   unsigned i, ninsns = 0;
@@ -197,7 +197,7 @@ num_loop_insns (const struct loop *loop)
 
 /* Counts number of insns executed on average per iteration LOOP.  */
 int
-average_num_loop_insns (const struct loop *loop)
+average_num_loop_insns (const class loop *loop)
 {
   basic_block *bbs, bb;
   unsigned i, binsns;
@@ -230,12 +230,17 @@ average_num_loop_insns (const struct loop *loop)
 }
 
 /* Returns expected number of iterations of LOOP, according to
-   measured or guessed profile.  No bounding is done on the
-   value.  */
+   measured or guessed profile.
+
+   This functions attempts to return "sane" value even if profile
+   information is not good enough to derive osmething.
+   If BY_PROFILE_ONLY is set, this logic is bypassed and function
+   return -1 in those scenarios.  */
 
 gcov_type
-expected_loop_iterations_unbounded (const struct loop *loop,
-				    bool *read_profile_p)
+expected_loop_iterations_unbounded (const class loop *loop,
+				    bool *read_profile_p,
+				    bool by_profile_only)
 {
   edge e;
   edge_iterator ei;
@@ -246,7 +251,11 @@ expected_loop_iterations_unbounded (const struct loop *loop,
 
   /* If we have no profile at all, use AVG_LOOP_NITER.  */
   if (profile_status_for_fn (cfun) == PROFILE_ABSENT)
-    expected = PARAM_VALUE (PARAM_AVG_LOOP_NITER);
+    {
+      if (by_profile_only)
+	return -1;
+      expected = PARAM_VALUE (PARAM_AVG_LOOP_NITER);
+    }
   else if (loop->latch && (loop->latch->count.initialized_p ()
 			   || loop->header->count.initialized_p ()))
     {
@@ -260,9 +269,17 @@ expected_loop_iterations_unbounded (const struct loop *loop,
 	  count_in += e->count ();
 
       if (!count_latch.initialized_p ())
-	expected = PARAM_VALUE (PARAM_AVG_LOOP_NITER);
+	{
+          if (by_profile_only)
+	    return -1;
+	  expected = PARAM_VALUE (PARAM_AVG_LOOP_NITER);
+	}
       else if (!count_in.nonzero_p ())
-	expected = count_latch.to_gcov_type () * 2;
+	{
+          if (by_profile_only)
+	    return -1;
+	  expected = count_latch.to_gcov_type () * 2;
+	}
       else
 	{
 	  expected = (count_latch.to_gcov_type () + count_in.to_gcov_type ()
@@ -273,11 +290,18 @@ expected_loop_iterations_unbounded (const struct loop *loop,
 	}
     }
   else
-    expected = PARAM_VALUE (PARAM_AVG_LOOP_NITER);
+    {
+      if (by_profile_only)
+	return -1;
+      expected = PARAM_VALUE (PARAM_AVG_LOOP_NITER);
+    }
 
-  HOST_WIDE_INT max = get_max_loop_iterations_int (loop);
-  if (max != -1 && max < expected)
-    return max;
+  if (!by_profile_only)
+    {
+      HOST_WIDE_INT max = get_max_loop_iterations_int (loop);
+      if (max != -1 && max < expected)
+        return max;
+    }
  
   return expected;
 }
@@ -286,7 +310,7 @@ expected_loop_iterations_unbounded (const struct loop *loop,
    by REG_BR_PROB_BASE.  */
 
 unsigned
-expected_loop_iterations (struct loop *loop)
+expected_loop_iterations (class loop *loop)
 {
   gcov_type expected = expected_loop_iterations_unbounded (loop);
   return (expected > REG_BR_PROB_BASE ? REG_BR_PROB_BASE : expected);
@@ -295,9 +319,9 @@ expected_loop_iterations (struct loop *loop)
 /* Returns the maximum level of nesting of subloops of LOOP.  */
 
 unsigned
-get_loop_level (const struct loop *loop)
+get_loop_level (const class loop *loop)
 {
-  const struct loop *ploop;
+  const class loop *ploop;
   unsigned mx = 0, l;
 
   for (ploop = loop->inner; ploop; ploop = ploop->next)
@@ -329,7 +353,7 @@ init_set_costs (void)
 	&& !fixed_regs[i])
       {
 	target_avail_regs++;
-	if (call_used_regs[i])
+	if (call_used_or_fixed_reg_p (i))
 	  target_clobbered_regs++;
       }
 
@@ -439,7 +463,7 @@ mark_loop_exit_edges (void)
    to noreturn call.  */
 
 edge
-single_likely_exit (struct loop *loop)
+single_likely_exit (class loop *loop)
 {
   edge found = single_exit (loop);
   vec<edge> exits;
@@ -476,7 +500,7 @@ single_likely_exit (struct loop *loop)
    header != latch, latch is the 1-st block.  */
 
 vec<basic_block>
-get_loop_hot_path (const struct loop *loop)
+get_loop_hot_path (const class loop *loop)
 {
   basic_block bb = loop->header;
   vec<basic_block> path = vNULL;

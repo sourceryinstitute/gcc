@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 2010-2018, Free Software Foundation, Inc.         --
+--          Copyright (C) 2010-2019, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -426,9 +426,9 @@ is
       end;
    end Element;
 
-   --------------
-   -- Elements --
-   --------------
+   -----------
+   -- Elems --
+   -----------
 
    function Elems (Container : in out Vector) return Maximal_Array_Ptr is
    begin
@@ -457,7 +457,7 @@ is
       Item      : Element_Type;
       Index     : Index_Type := Index_Type'First) return Extended_Index
    is
-      K    : Capacity_Range;
+      K    : Count_Type;
       Last : constant Index_Type := Last_Index (Container);
 
    begin
@@ -590,7 +590,7 @@ is
       end M_Elements_Reversed;
 
       ------------------------
-      -- M_Elements_Swapted --
+      -- M_Elements_Swapped --
       ------------------------
 
       function M_Elements_Swapped
@@ -1277,7 +1277,7 @@ is
       Index     : Index_Type := Index_Type'Last) return Extended_Index
    is
       Last : Index_Type'Base;
-      K    : Capacity_Range;
+      K    : Count_Type'Base;
 
    begin
       if Index > Last_Index (Container) then

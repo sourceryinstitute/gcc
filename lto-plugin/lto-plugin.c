@@ -1,5 +1,5 @@
 /* LTO plugin for gold and/or GNU ld.
-   Copyright (C) 2009-2018 Free Software Foundation, Inc.
+   Copyright (C) 2009-2019 Free Software Foundation, Inc.
    Contributed by Rafael Avila de Espindola (espindola@google.com).
 
 This program is free software; you can redistribute it and/or modify
@@ -27,10 +27,13 @@ along with this program; see the file COPYING3.  If not see
    More information at http://gcc.gnu.org/wiki/whopr/driver.
 
    This plugin should be passed the lto-wrapper options and will forward them.
-   It also has 2 options of its own:
+   It also has options at his own:
    -debug: Print the command line used to run lto-wrapper.
    -nop: Instead of running lto-wrapper, pass the original to the plugin. This
-   only works if the input files are hybrid.  */
+   only works if the input files are hybrid. 
+   -linker-output-known: Do not determine linker output
+   -sym-style={none,win32,underscore|uscore}
+   -pass-through  */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -38,6 +41,7 @@ along with this program; see the file COPYING3.  If not see
 #if HAVE_STDINT_H
 #include <stdint.h>
 #endif
+#include <stdbool.h>
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
@@ -159,6 +163,7 @@ static ld_plugin_add_symbols add_symbols;
 
 static struct plugin_file_info *claimed_files = NULL;
 static unsigned int num_claimed_files = 0;
+static unsigned int non_claimed_files = 0;
 
 /* List of files with offloading.  */
 static struct plugin_offload_file *offload_files;
@@ -180,11 +185,15 @@ static int lto_wrapper_num_args;
 static char **pass_through_items = NULL;
 static unsigned int num_pass_through_items;
 
-static char debug;
+static bool debug;
+static bool save_temps;
+static bool verbose;
 static char nop;
 static char *resolution_file = NULL;
 static enum ld_plugin_output_file_type linker_output;
 static int linker_output_set;
+static int linker_output_known;
+static const char *link_output_name = NULL;
 
 /* The version of gold being used, or -1 if not gold.  The number is
    MAJOR * 100 + MINOR.  */
@@ -555,8 +564,17 @@ exec_lto_wrapper (char *argv[])
   struct pex_obj *pex;
   const char *errmsg;
 
-  /* Write argv to a file to avoid a command line that is too long. */
-  arguments_file_name = make_temp_file ("");
+  /* Write argv to a file to avoid a command line that is too long
+     Save the file locally on save-temps.  */
+  if (save_temps && link_output_name)
+    {
+      arguments_file_name = (char *) xmalloc (strlen (link_output_name)
+				  + sizeof (".lto_wrapper_args") + 1);
+      strcpy (arguments_file_name, link_output_name);
+      strcat (arguments_file_name, ".lto_wrapper_args");
+    }
+  else
+     arguments_file_name = make_temp_file (".lto_wrapper_args");
   check (arguments_file_name, LDPL_FATAL,
          "Failed to generate a temorary file name");
 
@@ -574,13 +592,19 @@ exec_lto_wrapper (char *argv[])
   for (i = 1; argv[i]; i++)
     {
       char *a = argv[i];
+      /* Check the input argument list for a verbose marker too.  */
       if (a[0] == '-' && a[1] == 'v' && a[2] == '\0')
 	{
-	  for (i = 0; argv[i]; i++)
-	    fprintf (stderr, "%s ", argv[i]);
-	  fprintf (stderr, "\n");
+	  verbose = true;
 	  break;
 	}
+    }
+
+  if (verbose)
+    {
+      for (i = 0; argv[i]; i++)
+	fprintf (stderr, "%s ", argv[i]);
+      fprintf (stderr, "\n");
     }
 
   new_argv[0] = argv[0];
@@ -593,7 +617,6 @@ exec_lto_wrapper (char *argv[])
 	fprintf (stderr, "%s ", new_argv[i]);
       fprintf (stderr, "\n");
     }
-
 
   pex = pex_init (PEX_USE_PIPES, "lto-wrapper", NULL);
   check (pex != NULL, LDPL_FATAL, "could not pex_init lto-wrapper");
@@ -637,7 +660,8 @@ static enum ld_plugin_status
 all_symbols_read_handler (void)
 {
   unsigned i;
-  unsigned num_lto_args = num_claimed_files + lto_wrapper_num_args + 3;
+  unsigned num_lto_args = num_claimed_files + lto_wrapper_num_args + 2
+    	   + !linker_output_known;
   char **lto_argv;
   const char *linker_output_str = NULL;
   const char **lto_arg_ptr;
@@ -661,26 +685,37 @@ all_symbols_read_handler (void)
   for (i = 0; i < lto_wrapper_num_args; i++)
     *lto_arg_ptr++ = lto_wrapper_argv[i];
 
-  assert (linker_output_set);
-  switch (linker_output)
+  if (!linker_output_known)
     {
-    case LDPO_REL:
-      linker_output_str = "-flinker-output=rel";
-      break;
-    case LDPO_DYN:
-      linker_output_str = "-flinker-output=dyn";
-      break;
-    case LDPO_PIE:
-      linker_output_str = "-flinker-output=pie";
-      break;
-    case LDPO_EXEC:
-      linker_output_str = "-flinker-output=exec";
-      break;
-    default:
-      message (LDPL_FATAL, "unsupported linker output %i", linker_output);
-      break;
+      assert (linker_output_set);
+      switch (linker_output)
+	{
+	case LDPO_REL:
+	  if (non_claimed_files)
+	    {
+	      message (LDPL_WARNING, "incremental linking of LTO and non-LTO "
+		       "objects; using -flinker-output=nolto-rel which will "
+		       "bypass whole program optimization");
+	      linker_output_str = "-flinker-output=nolto-rel";
+	    }
+	  else
+	    linker_output_str = "-flinker-output=rel";
+	  break;
+	case LDPO_DYN:
+	  linker_output_str = "-flinker-output=dyn";
+	  break;
+	case LDPO_PIE:
+	  linker_output_str = "-flinker-output=pie";
+	  break;
+	case LDPO_EXEC:
+	  linker_output_str = "-flinker-output=exec";
+	  break;
+	default:
+	  message (LDPL_FATAL, "unsupported linker output %i", linker_output);
+	  break;
+	}
+      *lto_arg_ptr++ = xstrdup (linker_output_str);
     }
-  *lto_arg_ptr++ = xstrdup (linker_output_str);
 
   if (num_offload_files > 0)
     {
@@ -742,28 +777,44 @@ all_symbols_read_handler (void)
   return LDPS_OK;
 }
 
+/* Helper, as used in collect2.  */
+static int
+file_exists (const char *name)
+{
+  return access (name, R_OK) == 0;
+}
+
+/* Unlink FILE unless we have save-temps set.
+   Note that we're saving files if verbose output is set. */
+
+static void
+maybe_unlink (const char *file)
+{
+  if (save_temps && file_exists (file))
+    {
+      if (verbose)
+	fprintf (stderr, "[Leaving %s]\n", file);
+      return;
+    }
+
+  unlink_if_ordinary (file);
+}
+
 /* Remove temporary files at the end of the link. */
 
 static enum ld_plugin_status
 cleanup_handler (void)
 {
   unsigned int i;
-  int t;
 
   if (debug)
     return LDPS_OK;
 
   if (arguments_file_name)
-    {
-      t = unlink (arguments_file_name);
-      check (t == 0, LDPL_FATAL, "could not unlink arguments file");
-    }
+    maybe_unlink (arguments_file_name);
 
   for (i = 0; i < num_output_files; i++)
-    {
-      t = unlink (output_files[i]);
-      check (t == 0, LDPL_FATAL, "could not unlink output file");
-    }
+    maybe_unlink (output_files[i]);
 
   free_2 ();
   return LDPS_OK;
@@ -1108,6 +1159,7 @@ claim_file_handler (const struct ld_plugin_input_file *file, int *claimed)
   goto cleanup;
 
  err:
+  non_claimed_files++;
   free (lto_file.name);
 
  cleanup:
@@ -1122,8 +1174,15 @@ claim_file_handler (const struct ld_plugin_input_file *file, int *claimed)
 static void
 process_option (const char *option)
 {
+  if (strcmp (option, "-linker-output-known") == 0)
+    linker_output_known = 1;
   if (strcmp (option, "-debug") == 0)
-    debug = 1;
+    debug = true;
+  else if ((strcmp (option, "-v") == 0)
+           || (strcmp (option, "--verbose") == 0))
+    verbose = true;
+  else if (strcmp (option, "-save-temps") == 0)
+    save_temps = true;
   else if (strcmp (option, "-nop") == 0)
     nop = 1;
   else if (!strncmp (option, "-pass-through=", strlen("-pass-through=")))
@@ -1160,6 +1219,8 @@ process_option (const char *option)
       if (strncmp (option, "-fresolution=", sizeof ("-fresolution=") - 1) == 0)
 	resolution_file = opt + sizeof ("-fresolution=") - 1;
     }
+  save_temps = save_temps || debug;
+  verbose = verbose || debug;
 }
 
 /* Called by gold after loading the plugin. TV is the transfer vector. */
@@ -1212,6 +1273,10 @@ onload (struct ld_plugin_tv *tv)
 	  linker_output = (enum ld_plugin_output_file_type) p->tv_u.tv_val;
 	  linker_output_set = 1;
 	  break;
+	case LDPT_OUTPUT_NAME:
+	  /* We only use this to make user-friendly temp file names.  */
+	  link_output_name = p->tv_u.tv_string;
+	  break;
 	default:
 	  break;
 	}
@@ -1239,12 +1304,21 @@ onload (struct ld_plugin_tv *tv)
 	     "could not register the all_symbols_read callback");
     }
 
-  /* Support -fno-use-linker-plugin by failing to load the plugin
-     for the case where it is auto-loaded by BFD.  */
   char *collect_gcc_options = getenv ("COLLECT_GCC_OPTIONS");
-  if (collect_gcc_options
-      && strstr (collect_gcc_options, "'-fno-use-linker-plugin'"))
-    return LDPS_ERR;
+  if (collect_gcc_options)
+    {
+      /* Support -fno-use-linker-plugin by failing to load the plugin
+	 for the case where it is auto-loaded by BFD.  */
+      if (strstr (collect_gcc_options, "'-fno-use-linker-plugin'"))
+	return LDPS_ERR;
+
+      if ( strstr (collect_gcc_options, "'-save-temps'"))
+	save_temps = true;
+
+      if (strstr (collect_gcc_options, "'-v'")
+          || strstr (collect_gcc_options, "'--verbose'"))
+	verbose = true;
+    }
 
   return LDPS_OK;
 }

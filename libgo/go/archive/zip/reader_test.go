@@ -414,7 +414,7 @@ var tests = []ZipTest{
 				Name:     "test.txt",
 				Content:  []byte{},
 				Size:     1<<32 - 1,
-				Modified: time.Date(2017, 10, 31, 21, 17, 27, 0, timeZone(-7*time.Hour)),
+				Modified: time.Date(2017, 10, 31, 21, 11, 57, 0, timeZone(-7*time.Hour)),
 				Mode:     0644,
 			},
 		},
@@ -657,6 +657,12 @@ func TestInvalidFiles(t *testing.T) {
 	_, err = NewReader(bytes.NewReader(b), size)
 	if err != ErrFormat {
 		t.Errorf("sigs: error=%v, want %v", err, ErrFormat)
+	}
+
+	// negative size
+	_, err = NewReader(bytes.NewReader([]byte("foobar")), -1)
+	if err == nil {
+		t.Errorf("archive/zip.NewReader: expected error when negative size is passed")
 	}
 }
 

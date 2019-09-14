@@ -1,5 +1,5 @@
 /* IPA reference lists.
-   Copyright (C) 2010-2018 Free Software Foundation, Inc.
+   Copyright (C) 2010-2019 Free Software Foundation, Inc.
    Contributed by Jan Hubicka
 
 This file is part of GCC.
@@ -22,8 +22,8 @@ along with GCC; see the file COPYING3.  If not see
 #define GCC_IPA_REF_H
 
 struct cgraph_node;
-class varpool_node;
-class symtab_node;
+struct varpool_node;
+struct symtab_node;
 
 
 /* How the reference is done.  */
@@ -32,8 +32,7 @@ enum GTY(()) ipa_ref_use
   IPA_REF_LOAD,
   IPA_REF_STORE,
   IPA_REF_ADDR,
-  IPA_REF_ALIAS,
-  IPA_REF_CHKP
+  IPA_REF_ALIAS
 };
 
 /* Record of reference in callgraph or varpool.  */

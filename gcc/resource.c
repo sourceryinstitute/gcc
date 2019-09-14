@@ -1,5 +1,5 @@
 /* Definitions for computing resource usage of specific insns.
-   Copyright (C) 1999-2018 Free Software Foundation, Inc.
+   Copyright (C) 1999-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -108,6 +108,11 @@ update_live_status (rtx dest, const_rtx x, void *data ATTRIBUTE_UNUSED)
   if (GET_CODE (x) == CLOBBER)
     for (i = first_regno; i < last_regno; i++)
       CLEAR_HARD_REG_BIT (current_live_regs, i);
+  else if (GET_CODE (x) == CLOBBER_HIGH)
+    /* No current target supports both branch delay slots and CLOBBER_HIGH.
+       We'd need more elaborate liveness tracking to handle that
+       combination.  */
+    gcc_unreachable ();
   else
     for (i = first_regno; i < last_regno; i++)
       {
@@ -260,7 +265,7 @@ mark_referenced_resources (rtx x, struct resources *res,
       res->volatil |= MEM_VOLATILE_P (x);
 
       /* For all ASM_OPERANDS, we must traverse the vector of input operands.
-	 We can not just fall through here since then we would be confused
+	 We cannot just fall through here since then we would be confused
 	 by the ASM_INPUT rtx inside ASM_OPERANDS, which do not indicate
 	 traditional asms unlike their normal usage.  */
 
@@ -293,6 +298,7 @@ mark_referenced_resources (rtx x, struct resources *res,
       return;
 
     case CLOBBER:
+    case CLOBBER_HIGH:
       return;
 
     case CALL_INSN:
@@ -444,8 +450,8 @@ find_dead_or_set_registers (rtx_insn *target, struct resources *res,
 	case CODE_LABEL:
 	  /* After a label, any pending dead registers that weren't yet
 	     used can be made dead.  */
-	  AND_COMPL_HARD_REG_SET (pending_dead_regs, needed.regs);
-	  AND_COMPL_HARD_REG_SET (res->regs, pending_dead_regs);
+	  pending_dead_regs &= ~needed.regs;
+	  res->regs &= ~pending_dead_regs;
 	  CLEAR_HARD_REG_SET (pending_dead_regs);
 
 	  continue;
@@ -559,14 +565,12 @@ find_dead_or_set_registers (rtx_insn *target, struct resources *res,
 		    }
 
 		  target_res = *res;
-		  COPY_HARD_REG_SET (scratch, target_set.regs);
-		  AND_COMPL_HARD_REG_SET (scratch, needed.regs);
-		  AND_COMPL_HARD_REG_SET (target_res.regs, scratch);
+		  scratch = target_set.regs & ~needed.regs;
+		  target_res.regs &= ~scratch;
 
 		  fallthrough_res = *res;
-		  COPY_HARD_REG_SET (scratch, set.regs);
-		  AND_COMPL_HARD_REG_SET (scratch, needed.regs);
-		  AND_COMPL_HARD_REG_SET (fallthrough_res.regs, scratch);
+		  scratch = set.regs & ~needed.regs;
+		  fallthrough_res.regs &= ~scratch;
 
 		  if (!ANY_RETURN_P (this_jump_insn->jump_label ()))
 		    find_dead_or_set_registers
@@ -575,8 +579,8 @@ find_dead_or_set_registers (rtx_insn *target, struct resources *res,
 		  find_dead_or_set_registers (next_insn,
 					      &fallthrough_res, 0, jump_count,
 					      set, needed);
-		  IOR_HARD_REG_SET (fallthrough_res.regs, target_res.regs);
-		  AND_HARD_REG_SET (res->regs, fallthrough_res.regs);
+		  fallthrough_res.regs |= target_res.regs;
+		  res->regs &= fallthrough_res.regs;
 		  break;
 		}
 	      else
@@ -595,9 +599,8 @@ find_dead_or_set_registers (rtx_insn *target, struct resources *res,
       mark_referenced_resources (insn, &needed, true);
       mark_set_resources (insn, &set, 0, MARK_SRC_DEST_CALL);
 
-      COPY_HARD_REG_SET (scratch, set.regs);
-      AND_COMPL_HARD_REG_SET (scratch, needed.regs);
-      AND_COMPL_HARD_REG_SET (res->regs, scratch);
+      scratch = set.regs & ~needed.regs;
+      res->regs &= ~scratch;
     }
 
   return jump_insn;
@@ -664,13 +667,19 @@ mark_set_resources (rtx x, struct resources *res, int in_dest,
 	  res->cc = res->memory = 1;
 
 	  get_call_reg_set_usage (call_insn, &regs, regs_invalidated_by_call);
-	  IOR_HARD_REG_SET (res->regs, regs);
+	  res->regs |= regs;
 
 	  for (link = CALL_INSN_FUNCTION_USAGE (call_insn);
 	       link; link = XEXP (link, 1))
-	    if (GET_CODE (XEXP (link, 0)) == CLOBBER)
-	      mark_set_resources (SET_DEST (XEXP (link, 0)), res, 1,
-				  MARK_SRC_DEST);
+	    {
+	      /* We could support CLOBBER_HIGH and treat it in the same way as
+		 HARD_REGNO_CALL_PART_CLOBBERED, but no port needs that
+		 yet.  */
+	      gcc_assert (GET_CODE (XEXP (link, 0)) != CLOBBER_HIGH);
+	      if (GET_CODE (XEXP (link, 0)) == CLOBBER)
+		mark_set_resources (SET_DEST (XEXP (link, 0)), res, 1,
+				    MARK_SRC_DEST);
+	    }
 
 	  /* Check for a REG_SETJMP.  If it exists, then we must
 	     assume that this call can clobber any register.  */
@@ -712,6 +721,12 @@ mark_set_resources (rtx x, struct resources *res, int in_dest,
     case CLOBBER:
       mark_set_resources (XEXP (x, 0), res, 1, MARK_SRC_DEST);
       return;
+
+    case CLOBBER_HIGH:
+      /* No current target supports both branch delay slots and CLOBBER_HIGH.
+	 We'd need more elaborate liveness tracking to handle that
+	 combination.  */
+      gcc_unreachable ();
 
     case SEQUENCE:
       {
@@ -799,7 +814,7 @@ mark_set_resources (rtx x, struct resources *res, int in_dest,
       res->volatil |= MEM_VOLATILE_P (x);
 
       /* For all ASM_OPERANDS, we must traverse the vector of input operands.
-	 We can not just fall through here since then we would be confused
+	 We cannot just fall through here since then we would be confused
 	 by the ASM_INPUT rtx inside ASM_OPERANDS, which do not indicate
 	 traditional asms unlike their normal usage.  */
 
@@ -942,7 +957,7 @@ mark_target_live_regs (rtx_insn *insns, rtx target_maybe_return, struct resource
 	     update it below.  */
 	  if (b == tinfo->block && b != -1 && tinfo->bb_tick == bb_ticks[b])
 	    {
-	      COPY_HARD_REG_SET (res->regs, tinfo->live_regs);
+	      res->regs = tinfo->live_regs;
 	      return;
 	    }
 	}
@@ -969,9 +984,13 @@ mark_target_live_regs (rtx_insn *insns, rtx target_maybe_return, struct resource
     {
       regset regs_live = DF_LR_IN (BASIC_BLOCK_FOR_FN (cfun, b));
       rtx_insn *start_insn, *stop_insn;
+      df_ref def;
 
       /* Compute hard regs live at start of block.  */
       REG_SET_TO_HARD_REG_SET (current_live_regs, regs_live);
+      FOR_EACH_ARTIFICIAL_DEF (def, b)
+	if (DF_REF_FLAGS (def) & DF_REF_AT_TOP)
+	  SET_HARD_REG_BIT (current_live_regs, DF_REF_REGNO (def));
 
       /* Get starting and ending insn, handling the case where each might
 	 be a SEQUENCE.  */
@@ -1026,8 +1045,7 @@ mark_target_live_regs (rtx_insn *insns, rtx target_maybe_return, struct resource
 		  /* CALL clobbers all call-used regs that aren't fixed except
 		     sp, ap, and fp.  Do this before setting the result of the
 		     call live.  */
-		  AND_COMPL_HARD_REG_SET (current_live_regs,
-					  regs_invalidated_by_this_call);
+		  current_live_regs &= ~regs_invalidated_by_this_call;
 		}
 
 	      /* A CALL_INSN sets any global register live, since it may
@@ -1056,7 +1074,7 @@ mark_target_live_regs (rtx_insn *insns, rtx target_maybe_return, struct resource
 				      GET_MODE (XEXP (link, 0)),
 				      REGNO (XEXP (link, 0)));
 
-	      note_stores (PATTERN (real_insn), update_live_status, NULL);
+	      note_stores (real_insn, update_live_status, NULL);
 
 	      /* If any registers were unused after this insn, kill them.
 		 These notes will always be accurate.  */
@@ -1075,7 +1093,7 @@ mark_target_live_regs (rtx_insn *insns, rtx target_maybe_return, struct resource
 
 	      /* A label clobbers the pending dead registers since neither
 		 reload nor jump will propagate a value across a label.  */
-	      AND_COMPL_HARD_REG_SET (current_live_regs, pending_dead_regs);
+	      current_live_regs &= ~pending_dead_regs;
 	      CLEAR_HARD_REG_SET (pending_dead_regs);
 
 	      /* We must conservatively assume that all registers that used
@@ -1087,7 +1105,7 @@ mark_target_live_regs (rtx_insn *insns, rtx target_maybe_return, struct resource
 		  HARD_REG_SET extra_live;
 
 		  REG_SET_TO_HARD_REG_SET (extra_live, DF_LR_IN (bb));
-		  IOR_HARD_REG_SET (current_live_regs, extra_live);
+		  current_live_regs |= extra_live;
 		}
 	    }
 
@@ -1096,10 +1114,10 @@ mark_target_live_regs (rtx_insn *insns, rtx target_maybe_return, struct resource
 	     are implicitly required at that point.  */
 	  else if (NOTE_P (real_insn)
 		   && NOTE_KIND (real_insn) == NOTE_INSN_EPILOGUE_BEG)
-	    IOR_HARD_REG_SET (current_live_regs, start_of_epilogue_needs.regs);
+	    current_live_regs |= start_of_epilogue_needs.regs;
 	}
 
-      COPY_HARD_REG_SET (res->regs, current_live_regs);
+      res->regs = current_live_regs;
       if (tinfo != NULL)
 	{
 	  tinfo->block = b;
@@ -1138,20 +1156,17 @@ mark_target_live_regs (rtx_insn *insns, rtx target_maybe_return, struct resource
 	{
 	  mark_referenced_resources (insn, &needed, true);
 
-	  COPY_HARD_REG_SET (scratch, needed.regs);
-	  AND_COMPL_HARD_REG_SET (scratch, set.regs);
-	  IOR_HARD_REG_SET (new_resources.regs, scratch);
+	  scratch = needed.regs & ~set.regs;
+	  new_resources.regs |= scratch;
 
 	  mark_set_resources (insn, &set, 0, MARK_SRC_DEST_CALL);
 	}
 
-      IOR_HARD_REG_SET (res->regs, new_resources.regs);
+      res->regs |= new_resources.regs;
     }
 
   if (tinfo != NULL)
-    {
-      COPY_HARD_REG_SET (tinfo->live_regs, res->regs);
-    }
+    tinfo->live_regs = res->regs;
 }
 
 /* Initialize the resources required by mark_target_live_regs ().

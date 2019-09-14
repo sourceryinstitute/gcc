@@ -1,4 +1,4 @@
-@c Copyright (C) 2004-2018 Free Software Foundation, Inc.
+@c Copyright (C) 2004-2019 Free Software Foundation, Inc.
 @c This is part of the GCC manual.
 @c For copying conditions, see the file gcc.texi.
 
@@ -43,7 +43,6 @@ seems inelegant.
 * Functions::           	Function bodies, linkage, and other aspects.
 * Language-dependent trees::    Topics and trees specific to language front ends.
 * C and C++ Trees::     	Trees specific to C and C++.
-* Java Trees:: 	                Trees specific to Java.
 @end menu
 
 @c ---------------------------------------------------------------------
@@ -1274,6 +1273,7 @@ the byte offset of the field, but should not be used directly; call
 @subsection Unary and Binary Expressions
 @tindex NEGATE_EXPR
 @tindex ABS_EXPR
+@tindex ABSU_EXPR
 @tindex BIT_NOT_EXPR
 @tindex TRUTH_NOT_EXPR
 @tindex PREDECREMENT_EXPR
@@ -1370,6 +1370,11 @@ or complex abs of a complex value, use the @code{BUILT_IN_CABS},
 @code{BUILT_IN_CABSF} or @code{BUILT_IN_CABSL} builtins, as used
 to implement the C99 @code{cabs}, @code{cabsf} and @code{cabsl}
 built-in functions.
+
+@item ABSU_EXPR
+These nodes represent the absolute value of the single operand in
+equivalent unsigned type such that @code{ABSU_EXPR} of @code{TYPE_MIN}
+is well defined.
 
 @item BIT_NOT_EXPR
 These nodes represent bitwise complement, and will always have integral
@@ -1559,21 +1564,23 @@ allows the backend to choose between the faster of @code{TRUNC_DIV_EXPR},
 @itemx LE_EXPR
 @itemx GT_EXPR
 @itemx GE_EXPR
+@itemx LTGT_EXPR
 @itemx EQ_EXPR
 @itemx NE_EXPR
-These nodes represent the less than, less than or equal to, greater
-than, greater than or equal to, equal, and not equal comparison
-operators.  The first and second operands will either be both of integral
-type, both of floating type or both of vector type.  The result type of
-these expressions will always be of integral, boolean or signed integral
-vector type.  These operations return the result type's zero value for
-false, the result type's one value for true, and a vector whose elements
-are zero (false) or minus one (true) for vectors.
+These nodes represent the less than, less than or equal to, greater than,
+greater than or equal to, less or greater than, equal, and not equal
+comparison operators.  The first and second operands will either be both
+of integral type, both of floating type or both of vector type, except for
+LTGT_EXPR where they will only be both of floating type.  The result type
+of these expressions will always be of integral, boolean or signed integral
+vector type.  These operations return the result type's zero value for false,
+the result type's one value for true, and a vector whose elements are zero
+(false) or minus one (true) for vectors.
 
 For floating point comparisons, if we honor IEEE NaNs and either operand
 is NaN, then @code{NE_EXPR} always returns true and the remaining operators
 always return false.  On some targets, comparisons against an IEEE NaN,
-other than equality and inequality, may generate a floating point exception.
+other than equality and inequality, may generate a floating-point exception.
 
 @item ORDERED_EXPR
 @itemx UNORDERED_EXPR
@@ -1591,15 +1598,13 @@ and the result type's one value for true.
 @itemx UNGT_EXPR
 @itemx UNGE_EXPR
 @itemx UNEQ_EXPR
-@itemx LTGT_EXPR
 These nodes represent the unordered comparison operators.
 These operations take two floating point operands and determine whether
 the operands are unordered or are less than, less than or equal to,
 greater than, greater than or equal to, or equal respectively.  For
 example, @code{UNLT_EXPR} returns true if either operand is an IEEE
-NaN or the first operand is less than the second.  With the possible
-exception of @code{LTGT_EXPR}, all of these operations are guaranteed
-not to generate a floating point exception.  The result
+NaN or the first operand is less than the second.  All these operations
+are guaranteed not to generate a floating point exception.  The result
 type of these expressions will always be of integral or boolean type.
 These operations return the result type's zero value for false,
 and the result type's one value for true.
@@ -1644,10 +1649,10 @@ represented conveniently as @code{(i >= 0 && i < 10) ? i : abort()}.
 As a GNU extension, the C language front-ends allow the second
 operand of the @code{?:} operator may be omitted in the source.
 For example, @code{x ? : 3} is equivalent to @code{x ? x : 3},
-assuming that @code{x} is an expression without side-effects.
+assuming that @code{x} is an expression without side effects.
 In the tree representation, however, the second operand is always
 present, possibly protected by @code{SAVE_EXPR} if the first
-argument does cause side-effects.
+argument does cause side effects.
 
 @item CALL_EXPR
 These nodes are used to represent calls to functions, including
@@ -1732,10 +1737,10 @@ by the @code{COMPOUND_LITERAL_EXPR_DECL} macro.
 @item SAVE_EXPR
 
 A @code{SAVE_EXPR} represents an expression (possibly involving
-side-effects) that is used more than once.  The side-effects should
+side effects) that is used more than once.  The side effects should
 occur only the first time the expression is evaluated.  Subsequent uses
 should just reuse the computed value.  The first operand to the
-@code{SAVE_EXPR} is the expression to evaluate.  The side-effects should
+@code{SAVE_EXPR} is the expression to evaluate.  The side effects should
 be executed where the @code{SAVE_EXPR} is first encountered in a
 depth-first preorder traversal of the expression tree.
 
@@ -1789,9 +1794,12 @@ a value from @code{enum annot_expr_kind}, the third is an @code{INTEGER_CST}.
 @tindex VEC_UNPACK_LO_EXPR
 @tindex VEC_UNPACK_FLOAT_HI_EXPR
 @tindex VEC_UNPACK_FLOAT_LO_EXPR
+@tindex VEC_UNPACK_FIX_TRUNC_HI_EXPR
+@tindex VEC_UNPACK_FIX_TRUNC_LO_EXPR
 @tindex VEC_PACK_TRUNC_EXPR
 @tindex VEC_PACK_SAT_EXPR
 @tindex VEC_PACK_FIX_TRUNC_EXPR
+@tindex VEC_PACK_FLOAT_EXPR
 @tindex VEC_COND_EXPR
 @tindex SAD_EXPR
 
@@ -1846,9 +1854,21 @@ where the values are converted from fixed point to floating point.  The
 single operand is a vector that contains @code{N} elements of the same
 integral type.  The result is a vector that contains half as many elements
 of a floating point type whose size is twice as wide.  In the case of
-@code{VEC_UNPACK_HI_EXPR} the high @code{N/2} elements of the vector are
-extracted, converted and widened.  In the case of @code{VEC_UNPACK_LO_EXPR}
+@code{VEC_UNPACK_FLOAT_HI_EXPR} the high @code{N/2} elements of the vector are
+extracted, converted and widened.  In the case of @code{VEC_UNPACK_FLOAT_LO_EXPR}
 the low @code{N/2} elements of the vector are extracted, converted and widened.
+
+@item VEC_UNPACK_FIX_TRUNC_HI_EXPR
+@itemx VEC_UNPACK_FIX_TRUNC_LO_EXPR
+These nodes represent unpacking of the high and low parts of the input vector,
+where the values are truncated from floating point to fixed point.  The
+single operand is a vector that contains @code{N} elements of the same
+floating point type.  The result is a vector that contains half as many
+elements of an integral type whose size is twice as wide.  In the case of
+@code{VEC_UNPACK_FIX_TRUNC_HI_EXPR} the high @code{N/2} elements of the
+vector are extracted and converted with truncation.  In the case of
+@code{VEC_UNPACK_FIX_TRUNC_LO_EXPR} the low @code{N/2} elements of the
+vector are extracted and converted with truncation.
 
 @item VEC_PACK_TRUNC_EXPR
 This node represents packing of truncated elements of the two input vectors
@@ -1874,6 +1894,14 @@ of elements of a floating point type.  The result is a vector that contains
 twice as many elements of an integral type whose size is half as wide.  The
 elements of the two vectors are merged (concatenated) to form the output
 vector.
+
+@item VEC_PACK_FLOAT_EXPR
+This node represents packing of elements of the two input vectors into the
+output vector, where the values are converted from fixed point to floating
+point.  Input operands are vectors that contain the same number of elements
+of an integral type.  The result is a vector that contains twice as many
+elements of floating point type whose size is half as wide.  The elements of
+the two vectors are merged (concatenated) to form the output vector.
 
 @item VEC_COND_EXPR
 These nodes represent @code{?:} expressions.  The three operands must be
@@ -2152,6 +2180,11 @@ After the second sequence is executed, if it completes normally by
 falling off the end, execution continues wherever the first sequence
 would have continued, by falling off the end, or doing a goto, etc.
 
+If the second sequence is an @code{EH_ELSE_EXPR} selector, then the
+sequence in its first operand is used when the first sequence completes
+normally, and that in its second operand is used for exceptional
+cleanups, i.e., when an exception propagates out of the first sequence.
+
 @code{TRY_FINALLY_EXPR} complicates the flow graph, since the cleanup
 needs to appear on every edge out of the controlled block; this
 reduces the freedom to move code across these edges.  Therefore, the
@@ -2175,7 +2208,7 @@ edge.  Rethrowing the exception is represented using @code{RESX_EXPR}.
 @tindex OMP_CLAUSE
 
 All the statements starting with @code{OMP_} represent directives and
-clauses used by the OpenMP API @w{@uref{http://www.openmp.org/}}.
+clauses used by the OpenMP API @w{@uref{https://www.openmp.org}}.
 
 @table @code
 @item OMP_PARALLEL
@@ -2222,9 +2255,9 @@ of the form @code{VAR @{<,>,<=,>=@} N2}.
 Operand @code{OMP_FOR_INCR} is the loop index increment of the
 form @code{VAR @{+=,-=@} INCR}.
 
-Operand @code{OMP_FOR_PRE_BODY} contains side-effect code from
+Operand @code{OMP_FOR_PRE_BODY} contains side effect code from
 operands @code{OMP_FOR_INIT}, @code{OMP_FOR_COND} and
-@code{OMP_FOR_INC}.  These side-effects are part of the
+@code{OMP_FOR_INC}.  These side effects are part of the
 @code{OMP_FOR} block but must be evaluated before the start of
 loop body.
 
@@ -2233,7 +2266,7 @@ which is implicitly private to each thread.  Bounds
 @code{N1} and @code{N2} and the increment expression
 @code{INCR} are required to be loop invariant integer
 expressions that are evaluated without any synchronization. The
-evaluation order, frequency of evaluation and side-effects are
+evaluation order, frequency of evaluation and side effects are
 unspecified by the standard.
 
 @item OMP_SECTIONS
@@ -3515,7 +3548,3 @@ In either case, the expression is void.
 
 
 @end table
-
-
-@node Java Trees
-@section Java Trees

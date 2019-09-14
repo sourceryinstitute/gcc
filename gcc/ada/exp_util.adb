@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2018, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2019, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -343,7 +343,7 @@ package body Exp_Util is
             return;
          end if;
 
-         --  Case of zero/non-zero semantics or non-standard enumeration
+         --  Case of zero/nonzero semantics or nonstandard enumeration
          --  representation. In each case, we rewrite the node as:
 
          --      ityp!(N) /= False'Enum_Rep
@@ -682,16 +682,10 @@ package body Exp_Util is
 
       if Needs_Fin then
 
-         --  Certain run-time configurations and targets do not provide support
-         --  for controlled types.
-
-         if Restriction_Active (No_Finalization) then
-            return;
-
          --  Do nothing if the access type may never allocate / deallocate
          --  objects.
 
-         elsif No_Pool_Assigned (Ptr_Typ) then
+         if No_Pool_Assigned (Ptr_Typ) then
             return;
          end if;
 
@@ -1578,8 +1572,9 @@ package body Exp_Util is
 
       Loc : constant Source_Ptr := Sloc (Typ);
 
-      Saved_GM : constant Ghost_Mode_Type := Ghost_Mode;
-      --  Save the Ghost mode to restore on exit
+      Saved_GM  : constant Ghost_Mode_Type := Ghost_Mode;
+      Saved_IGR : constant Node_Id         := Ignored_Ghost_Region;
+      --  Save the Ghost-related attributes to restore on exit
 
       DIC_Prag     : Node_Id;
       DIC_Typ      : Entity_Id;
@@ -1814,7 +1809,7 @@ package body Exp_Util is
       end if;
 
    <<Leave>>
-      Restore_Ghost_Mode (Saved_GM);
+      Restore_Ghost_Region (Saved_GM, Saved_IGR);
    end Build_DIC_Procedure_Body;
 
    -------------------------------------
@@ -1828,8 +1823,9 @@ package body Exp_Util is
    procedure Build_DIC_Procedure_Declaration (Typ : Entity_Id) is
       Loc : constant Source_Ptr := Sloc (Typ);
 
-      Saved_GM : constant Ghost_Mode_Type := Ghost_Mode;
-      --  Save the Ghost mode to restore on exit
+      Saved_GM  : constant Ghost_Mode_Type := Ghost_Mode;
+      Saved_IGR : constant Node_Id         := Ignored_Ghost_Region;
+      --  Save the Ghost-related attributes to restore on exit
 
       DIC_Prag  : Node_Id;
       DIC_Typ   : Entity_Id;
@@ -1937,7 +1933,7 @@ package body Exp_Util is
       --  is subject to Source Coverage Obligations.
 
       if Generate_SCO then
-         Set_Needs_Debug_Info (Proc_Id);
+         Set_Debug_Info_Needed (Proc_Id);
       end if;
 
       --  Obtain all views of the input type
@@ -1981,6 +1977,7 @@ package body Exp_Util is
       Set_Scope (Obj_Id, Proc_Id);
 
       Set_First_Entity (Proc_Id, Obj_Id);
+      Set_Last_Entity  (Proc_Id, Obj_Id);
 
       --  Generate:
       --    procedure <Work_Typ>DIC (_object : <Work_Typ>);
@@ -2015,7 +2012,7 @@ package body Exp_Util is
       end if;
 
    <<Leave>>
-      Restore_Ghost_Mode (Saved_GM);
+      Restore_Ghost_Region (Saved_GM, Saved_IGR);
    end Build_DIC_Procedure_Declaration;
 
    ------------------------------------
@@ -2311,7 +2308,7 @@ package body Exp_Util is
             Deriv_Typ := T;
          end if;
 
-               pragma Assert (Present (Deriv_Typ));
+         pragma Assert (Present (Deriv_Typ));
 
          --  Determine which rep item chain to use. Precedence is given to that
          --  of the parent type's partial view since it usually carries all the
@@ -2945,8 +2942,9 @@ package body Exp_Util is
 
       --  Local variables
 
-      Saved_GM : constant Ghost_Mode_Type := Ghost_Mode;
-      --  Save the Ghost mode to restore on exit
+      Saved_GM  : constant Ghost_Mode_Type := Ghost_Mode;
+      Saved_IGR : constant Node_Id         := Ignored_Ghost_Region;
+      --  Save the Ghost-related attributes to restore on exit
 
       Dummy        : Entity_Id;
       Priv_Item    : Node_Id;
@@ -3286,7 +3284,7 @@ package body Exp_Util is
       end if;
 
    <<Leave>>
-      Restore_Ghost_Mode (Saved_GM);
+      Restore_Ghost_Region (Saved_GM, Saved_IGR);
    end Build_Invariant_Procedure_Body;
 
    -------------------------------------------
@@ -3303,8 +3301,9 @@ package body Exp_Util is
    is
       Loc : constant Source_Ptr := Sloc (Typ);
 
-      Saved_GM : constant Ghost_Mode_Type := Ghost_Mode;
-      --  Save the Ghost mode to restore on exit
+      Saved_GM  : constant Ghost_Mode_Type := Ghost_Mode;
+      Saved_IGR : constant Node_Id         := Ignored_Ghost_Region;
+      --  Save the Ghost-related attributes to restore on exit
 
       Proc_Decl : Node_Id;
       Proc_Id   : Entity_Id;
@@ -3409,7 +3408,7 @@ package body Exp_Util is
       --  subject to Source Coverage Obligations.
 
       if Generate_SCO then
-         Set_Needs_Debug_Info (Proc_Id);
+         Set_Debug_Info_Needed (Proc_Id);
       end if;
 
       --  Obtain all views of the input type
@@ -3519,7 +3518,7 @@ package body Exp_Util is
       end if;
 
    <<Leave>>
-      Restore_Ghost_Mode (Saved_GM);
+      Restore_Ghost_Region (Saved_GM, Saved_IGR);
    end Build_Invariant_Procedure_Declaration;
 
    --------------------------
@@ -4446,8 +4445,8 @@ package body Exp_Util is
 
    begin
       --  If no component clause, then everything is fine, since the back end
-      --  never bit-misaligns by default, even if there is a pragma Packed for
-      --  the record.
+      --  never misaligns from byte boundaries by default, even if there is a
+      --  pragma Pack for the record.
 
       if No (Comp) or else No (Component_Clause (Comp)) then
          return False;
@@ -4494,7 +4493,7 @@ package body Exp_Util is
    begin
       --  E is the package or generic package which is externally axiomatized
 
-      if Ekind_In (E, E_Generic_Package, E_Package)
+      if Is_Package_Or_Generic_Package (E)
         and then Has_Annotate_Pragma_For_External_Axiomatization (E)
       then
          return E;
@@ -4610,7 +4609,7 @@ package body Exp_Util is
    begin
       pragma Assert (Is_Concurrent_Type (Typ));
 
-      if Ekind (Typ) in Protected_Kind then
+      if Is_Protected_Type (Typ) then
          if Has_Entries (Typ)
 
             --  A protected type without entries that covers an interface and
@@ -4747,6 +4746,26 @@ package body Exp_Util is
       return New_Exp;
    end Duplicate_Subexpr_Move_Checks;
 
+   -------------------------
+   -- Enclosing_Init_Proc --
+   -------------------------
+
+   function Enclosing_Init_Proc return Entity_Id is
+      S : Entity_Id;
+
+   begin
+      S := Current_Scope;
+      while Present (S) and then S /= Standard_Standard loop
+         if Is_Init_Proc (S) then
+            return S;
+         else
+            S := Scope (S);
+         end if;
+      end loop;
+
+      return Empty;
+   end Enclosing_Init_Proc;
+
    --------------------
    -- Ensure_Defined --
    --------------------
@@ -4802,7 +4821,7 @@ package body Exp_Util is
                while Present (E) loop
                   Force_Evaluation (E);
 
-                  if Original_Node (E) /= E then
+                  if Is_Rewrite_Substitution (E) then
                      Set_Do_Range_Check
                        (E, Do_Range_Check (Original_Node (E)));
                   end if;
@@ -4922,18 +4941,6 @@ package body Exp_Util is
       end if;
    end Evolve_Or_Else;
 
-   -----------------------------------
-   -- Exceptions_In_Finalization_OK --
-   -----------------------------------
-
-   function Exceptions_In_Finalization_OK return Boolean is
-   begin
-      return
-        not (Restriction_Active (No_Exception_Handlers)    or else
-             Restriction_Active (No_Exception_Propagation) or else
-             Restriction_Active (No_Exceptions));
-   end Exceptions_In_Finalization_OK;
-
    -----------------------------------------
    -- Expand_Static_Predicates_In_Choices --
    -----------------------------------------
@@ -4995,6 +5002,8 @@ package body Exp_Util is
 
          Choice := Next_C;
       end loop;
+
+      Set_Has_SP_Choice (N, False);
    end Expand_Static_Predicates_In_Choices;
 
    ------------------------------
@@ -5059,9 +5068,13 @@ package body Exp_Util is
       --  may be constants that depend on the bounds of a string literal, both
       --  standard string types and more generally arrays of characters.
 
-      --  In GNATprove mode, these extra subtypes are not needed
+      --  In GNATprove mode, these extra subtypes are not needed, unless Exp is
+      --  a static expression. In that case, the subtype will be constrained
+      --  while the original type might be unconstrained, so expanding the type
+      --  is necessary both for passing legality checks in GNAT and for precise
+      --  analysis in GNATprove.
 
-      if GNATprove_Mode then
+      if GNATprove_Mode and then not Is_Static_Expression (Exp) then
          return;
       end if;
 
@@ -5086,7 +5099,7 @@ package body Exp_Util is
 
             --  This subtype indication may be used later for constraint checks
             --  we better make sure that if a variable was used as a bound of
-            --  of the original slice, its value is frozen.
+            --  the original slice, its value is frozen.
 
             Evaluate_Slice_Bounds (Exp);
          end;
@@ -5334,6 +5347,7 @@ package body Exp_Util is
    ----------------------
 
    function Finalize_Address (Typ : Entity_Id) return Entity_Id is
+      Btyp : constant Entity_Id := Base_Type (Typ);
       Utyp : Entity_Id := Typ;
 
    begin
@@ -5373,12 +5387,12 @@ package body Exp_Util is
       --  records do not automatically inherit operations, but maybe they
       --  should???)
 
-      if Is_Untagged_Derivation (Typ) then
-         if Is_Protected_Type (Typ) then
-            Utyp := Corresponding_Record_Type (Root_Type (Base_Type (Typ)));
+      if Is_Untagged_Derivation (Btyp) then
+         if Is_Protected_Type (Btyp) then
+            Utyp := Corresponding_Record_Type (Root_Type (Btyp));
 
          else
-            Utyp := Underlying_Type (Root_Type (Base_Type (Typ)));
+            Utyp := Underlying_Type (Root_Type (Btyp));
 
             if Is_Protected_Type (Utyp) then
                Utyp := Corresponding_Record_Type (Utyp);
@@ -5509,7 +5523,6 @@ package body Exp_Util is
          then
             --  Skip the tag associated with the primary table
 
-            pragma Assert (Etype (First_Tag_Component (Typ)) = RTE (RE_Tag));
             AI_Tag := Next_Tag_Component (First_Tag_Component (Typ));
             pragma Assert (Present (AI_Tag));
 
@@ -5570,14 +5583,12 @@ package body Exp_Util is
       --  primary dispatch table.
 
       if Is_Ancestor (Iface, Typ, Use_Full_View => True) then
-         pragma Assert (Etype (First_Tag_Component (Typ)) = RTE (RE_Tag));
          return First_Tag_Component (Typ);
 
       --  Otherwise we need to search for its associated tag component
 
       else
          Find_Tag (Typ);
-         pragma Assert (Found);
          return AI_Tag;
       end if;
    end Find_Interface_Tag;
@@ -5609,7 +5620,7 @@ package body Exp_Util is
          --  We can retrieve primitive operations by name if it is an internal
          --  name. For equality we must check that both of its operands have
          --  the same type, to avoid confusion with user-defined equalities
-         --  than may have a non-symmetric signature.
+         --  than may have a asymmetric signature.
 
          exit when Chars (Op) = Name
            and then
@@ -6685,20 +6696,34 @@ package body Exp_Util is
    -- Insert_Action --
    -------------------
 
-   procedure Insert_Action (Assoc_Node : Node_Id; Ins_Action : Node_Id) is
+   procedure Insert_Action
+     (Assoc_Node   : Node_Id;
+      Ins_Action   : Node_Id;
+      Spec_Expr_OK : Boolean := False)
+   is
    begin
       if Present (Ins_Action) then
-         Insert_Actions (Assoc_Node, New_List (Ins_Action));
+         Insert_Actions
+           (Assoc_Node   => Assoc_Node,
+            Ins_Actions  => New_List (Ins_Action),
+            Spec_Expr_OK => Spec_Expr_OK);
       end if;
    end Insert_Action;
 
    --  Version with check(s) suppressed
 
    procedure Insert_Action
-     (Assoc_Node : Node_Id; Ins_Action : Node_Id; Suppress : Check_Id)
+     (Assoc_Node   : Node_Id;
+      Ins_Action   : Node_Id;
+      Suppress     : Check_Id;
+      Spec_Expr_OK : Boolean := False)
    is
    begin
-      Insert_Actions (Assoc_Node, New_List (Ins_Action), Suppress);
+      Insert_Actions
+        (Assoc_Node   => Assoc_Node,
+         Ins_Actions  => New_List (Ins_Action),
+         Suppress     => Suppress,
+         Spec_Expr_OK => Spec_Expr_OK);
    end Insert_Action;
 
    -------------------------
@@ -6717,7 +6742,11 @@ package body Exp_Util is
    -- Insert_Actions --
    --------------------
 
-   procedure Insert_Actions (Assoc_Node : Node_Id; Ins_Actions : List_Id) is
+   procedure Insert_Actions
+     (Assoc_Node   : Node_Id;
+      Ins_Actions  : List_Id;
+      Spec_Expr_OK : Boolean := False)
+   is
       N : Node_Id;
       P : Node_Id;
 
@@ -6728,14 +6757,20 @@ package body Exp_Util is
          return;
       end if;
 
+      --  Insert the action when the context is "Handling of Default and Per-
+      --  Object Expressions" only when requested by the caller.
+
+      if Spec_Expr_OK then
+         null;
+
       --  Ignore insert of actions from inside default expression (or other
       --  similar "spec expression") in the special spec-expression analyze
       --  mode. Any insertions at this point have no relevance, since we are
       --  only doing the analyze to freeze the types of any static expressions.
-      --  See section "Handling of Default Expressions" in the spec of package
-      --  Sem for further details.
+      --  See section "Handling of Default and Per-Object Expressions" in the
+      --  spec of package Sem for further details.
 
-      if In_Spec_Expression then
+      elsif In_Spec_Expression then
          return;
       end if;
 
@@ -6789,8 +6824,8 @@ package body Exp_Util is
          N := Assoc_Node;
          P := Parent (Assoc_Node);
 
-      --  Non-subexpression case. Note that N is initially Empty in this case
-      --  (N is only guaranteed Non-Empty in the subexpr case).
+      --  Nonsubexpression case. Note that N is initially Empty in this case
+      --  (N is only guaranteed non-Empty in the subexpr case).
 
       else
          N := Empty;
@@ -7045,7 +7080,6 @@ package body Exp_Util is
                | N_Procedure_Instantiation
                | N_Protected_Body
                | N_Protected_Body_Stub
-               | N_Protected_Type_Declaration
                | N_Single_Task_Declaration
                | N_Subprogram_Body
                | N_Subprogram_Body_Stub
@@ -7054,7 +7088,6 @@ package body Exp_Util is
                | N_Subtype_Declaration
                | N_Task_Body
                | N_Task_Body_Stub
-               | N_Task_Type_Declaration
 
                --  Use clauses can appear in lists of declarations
 
@@ -7117,6 +7150,21 @@ package body Exp_Util is
                   Insert_List_Before_And_Analyze (P, Ins_Actions);
                   return;
                end if;
+
+            --  the expansion of Task and protected type declarations can
+            --  create declarations for temporaries which, like other actions
+            --  are inserted and analyzed before the current declaraation.
+            --  However, the current scope is the synchronized type, and
+            --  for unnesting it is critical that the proper scope for these
+            --  generated entities be the enclosing one.
+
+            when N_Task_Type_Declaration
+               | N_Protected_Type_Declaration =>
+
+               Push_Scope (Scope (Current_Scope));
+               Insert_List_Before_And_Analyze (P, Ins_Actions);
+               Pop_Scope;
+               return;
 
             --  A special case, N_Raise_xxx_Error can act either as a statement
             --  or a subexpression. We tell the difference by looking at the
@@ -7349,8 +7397,6 @@ package body Exp_Util is
                | N_Real_Literal
                | N_Real_Range_Specification
                | N_Record_Definition
-               | N_Reduction_Expression
-               | N_Reduction_Expression_Parameter
                | N_Reference
                | N_SCIL_Dispatch_Table_Tag_Init
                | N_SCIL_Dispatching_Call
@@ -7401,9 +7447,10 @@ package body Exp_Util is
    --  Version with check(s) suppressed
 
    procedure Insert_Actions
-     (Assoc_Node  : Node_Id;
-      Ins_Actions : List_Id;
-      Suppress    : Check_Id)
+     (Assoc_Node   : Node_Id;
+      Ins_Actions  : List_Id;
+      Suppress     : Check_Id;
+      Spec_Expr_OK : Boolean := False)
    is
    begin
       if Suppress = All_Checks then
@@ -7411,7 +7458,7 @@ package body Exp_Util is
             Sva : constant Suppress_Array := Scope_Suppress.Suppress;
          begin
             Scope_Suppress.Suppress := (others => True);
-            Insert_Actions (Assoc_Node, Ins_Actions);
+            Insert_Actions (Assoc_Node, Ins_Actions, Spec_Expr_OK);
             Scope_Suppress.Suppress := Sva;
          end;
 
@@ -7420,7 +7467,7 @@ package body Exp_Util is
             Svg : constant Boolean := Scope_Suppress.Suppress (Suppress);
          begin
             Scope_Suppress.Suppress (Suppress) := True;
-            Insert_Actions (Assoc_Node, Ins_Actions);
+            Insert_Actions (Assoc_Node, Ins_Actions, Spec_Expr_OK);
             Scope_Suppress.Suppress (Suppress) := Svg;
          end;
       end if;
@@ -7530,19 +7577,10 @@ package body Exp_Util is
    ----------------------
 
    function Inside_Init_Proc return Boolean is
-      S : Entity_Id;
+      Proc : constant Entity_Id := Enclosing_Init_Proc;
 
    begin
-      S := Current_Scope;
-      while Present (S) and then S /= Standard_Standard loop
-         if Is_Init_Proc (S) then
-            return True;
-         else
-            S := Scope (S);
-         end if;
-      end loop;
-
-      return False;
+      return Proc /= Empty;
    end Inside_Init_Proc;
 
    ----------------------------
@@ -8214,8 +8252,8 @@ package body Exp_Util is
          return False;
       end if;
 
-      --  Here we have a tagged type, see if it has any unlayed out fields
-      --  other than a possible tag and parent fields. If so, we return False.
+      --  Here we have a tagged type, see if it has any component (other than
+      --  tag and parent) with no component_clause. If so, we return False.
 
       Comp := First_Component (U);
       while Present (Comp) loop
@@ -8229,7 +8267,7 @@ package body Exp_Util is
          end if;
       end loop;
 
-      --  All components are layed out
+      --  All components have clauses
 
       return True;
    end Is_Fully_Repped_Tagged_Type;
@@ -8309,7 +8347,7 @@ package body Exp_Util is
             S : Nat;
 
          begin
-            --  If component reference is for an array with non-static bounds,
+            --  If component reference is for an array with nonstatic bounds,
             --  then it is always aligned: we can only process unaligned arrays
             --  with static bounds (more precisely compile time known bounds).
 
@@ -8393,9 +8431,23 @@ package body Exp_Util is
 
                declare
                   Align_In_Bits : constant Nat := M * System_Storage_Unit;
+                  Comp : Entity_Id;
+
                begin
-                  if Component_Bit_Offset (C) mod Align_In_Bits /= 0
-                    or else Esize (C) mod Align_In_Bits /= 0
+                  Comp := C;
+
+                  --  For a component inherited in a record extension, the
+                  --  clause is inherited but position and size are not set.
+
+                  if Is_Base_Type (Etype (P))
+                    and then Is_Tagged_Type (Etype (P))
+                    and then Present (Original_Record_Component (Comp))
+                  then
+                     Comp := Original_Record_Component (Comp);
+                  end if;
+
+                  if Component_Bit_Offset (Comp) mod Align_In_Bits /= 0
+                    or else Esize (Comp) mod Align_In_Bits /= 0
                   then
                      return True;
                   end if;
@@ -8432,12 +8484,6 @@ package body Exp_Util is
       --  The reference must be a slice
 
       if Nkind (N) /= N_Slice then
-         return False;
-      end if;
-
-      --  We only need to worry if the target has strict alignment
-
-      if not Target_Strict_Alignment then
          return False;
       end if;
 
@@ -8981,12 +9027,17 @@ package body Exp_Util is
    --  Generate the following code:
 
    --   type Equiv_T is record
-   --     _parent :  T (List of discriminant constraints taken from Exp);
+   --     _parent : T (List of discriminant constraints taken from Exp);
    --     Ext__50 : Storage_Array (1 .. (Exp'size - Typ'object_size)/8);
    --   end Equiv_T;
    --
-   --   ??? Note that this type does not guarantee same alignment as all
-   --   derived types
+   --  ??? Note that this type does not guarantee same alignment as all
+   --  derived types
+   --
+   --  Note: for the freezing circuitry, this looks like a record extension,
+   --  and so we need to make sure that the scalar storage order is the same
+   --  as that of the parent type. (This does not change anything for the
+   --  representation of the extension part.)
 
    function Make_CW_Equivalent_Type
      (T : Entity_Id;
@@ -8994,6 +9045,7 @@ package body Exp_Util is
    is
       Loc         : constant Source_Ptr := Sloc (E);
       Root_Typ    : constant Entity_Id  := Root_Type (T);
+      Root_Utyp   : constant Entity_Id  := Underlying_Type (Root_Typ);
       List_Def    : constant List_Id    := Empty_List;
       Comp_List   : constant List_Id    := New_List;
       Equiv_Type  : Entity_Id;
@@ -9011,7 +9063,7 @@ package body Exp_Util is
       then
          Constr_Root := Root_Typ;
 
-         --  At this point in the expansion, non-limited view of the type
+         --  At this point in the expansion, nonlimited view of the type
          --  must be available, otherwise the error will be reported later.
 
          if From_Limited_With (Constr_Root)
@@ -9124,6 +9176,11 @@ package body Exp_Util is
                Make_Component_Definition (Loc,
                  Aliased_Present    => False,
                  Subtype_Indication => New_Occurrence_Of (Constr_Root, Loc))));
+
+         Set_Reverse_Storage_Order
+           (Equiv_Type, Reverse_Storage_Order (Base_Type (Root_Utyp)));
+         Set_Reverse_Bit_Order
+           (Equiv_Type, Reverse_Bit_Order (Base_Type (Root_Utyp)));
       end if;
 
       Append_To (Comp_List,
@@ -9256,14 +9313,16 @@ package body Exp_Util is
    is
       Loc : constant Source_Ptr := Sloc (Expr);
 
-      Saved_GM : constant Ghost_Mode_Type := Ghost_Mode;
-      --  Save the Ghost mode to restore on exit
+      Saved_GM  : constant Ghost_Mode_Type := Ghost_Mode;
+      Saved_IGR : constant Node_Id         := Ignored_Ghost_Region;
+      --  Save the Ghost-related attributes to restore on exit
 
       Call    : Node_Id;
       Func_Id : Entity_Id;
 
    begin
-      pragma Assert (Present (Predicate_Function (Typ)));
+      Func_Id := Predicate_Function (Typ);
+      pragma Assert (Present (Func_Id));
 
       --  The related type may be subject to pragma Ghost. Set the mode now to
       --  ensure that the call is properly marked as Ghost.
@@ -9274,22 +9333,22 @@ package body Exp_Util is
 
       if Mem and then Present (Predicate_Function_M (Typ)) then
          Func_Id := Predicate_Function_M (Typ);
-      else
-         Func_Id := Predicate_Function (Typ);
       end if;
 
       --  Case of calling normal predicate function
 
       --  If the type is tagged, the expression may be class-wide, in which
       --  case it has to be converted to its root type, given that the
-      --  generated predicate function is not dispatching.
+      --  generated predicate function is not dispatching. The conversion is
+      --  type-safe and does not need validation, which matters when private
+      --  extensions are involved.
 
       if Is_Tagged_Type (Typ) then
          Call :=
            Make_Function_Call (Loc,
              Name                   => New_Occurrence_Of (Func_Id, Loc),
              Parameter_Associations =>
-               New_List (Convert_To (Typ, Relocate_Node (Expr))));
+               New_List (OK_Convert_To (Typ, Relocate_Node (Expr))));
       else
          Call :=
            Make_Function_Call (Loc,
@@ -9297,7 +9356,7 @@ package body Exp_Util is
              Parameter_Associations => New_List (Relocate_Node (Expr)));
       end if;
 
-      Restore_Ghost_Mode (Saved_GM);
+      Restore_Ghost_Region (Saved_GM, Saved_IGR);
 
       return Call;
    end Make_Predicate_Call;
@@ -9777,7 +9836,7 @@ package body Exp_Util is
       --  in the derivation chain starting from parent type Par_Typ leading to
       --  derived type Deriv_Typ. The returned value is one of the following:
       --
-      --    * An entity which is either a discriminant or a non-discriminant
+      --    * An entity which is either a discriminant or a nondiscriminant
       --      name, and renames/constraints Discr.
       --
       --    * An expression which constraints Discr
@@ -10426,93 +10485,17 @@ package body Exp_Util is
       end if;
    end May_Generate_Large_Temp;
 
-   ------------------------
-   -- Needs_Finalization --
-   ------------------------
+   --------------------------------------------
+   -- Needs_Conditional_Null_Excluding_Check --
+   --------------------------------------------
 
-   function Needs_Finalization (Typ : Entity_Id) return Boolean is
-      function Has_Some_Controlled_Component
-        (Input_Typ : Entity_Id) return Boolean;
-      --  Determine whether type Input_Typ has at least one controlled
-      --  component.
-
-      -----------------------------------
-      -- Has_Some_Controlled_Component --
-      -----------------------------------
-
-      function Has_Some_Controlled_Component
-        (Input_Typ : Entity_Id) return Boolean
-      is
-         Comp : Entity_Id;
-
-      begin
-         --  When a type is already frozen and has at least one controlled
-         --  component, or is manually decorated, it is sufficient to inspect
-         --  flag Has_Controlled_Component.
-
-         if Has_Controlled_Component (Input_Typ) then
-            return True;
-
-         --  Otherwise inspect the internals of the type
-
-         elsif not Is_Frozen (Input_Typ) then
-            if Is_Array_Type (Input_Typ) then
-               return Needs_Finalization (Component_Type (Input_Typ));
-
-            elsif Is_Record_Type (Input_Typ) then
-               Comp := First_Component (Input_Typ);
-               while Present (Comp) loop
-                  if Needs_Finalization (Etype (Comp)) then
-                     return True;
-                  end if;
-
-                  Next_Component (Comp);
-               end loop;
-            end if;
-         end if;
-
-         return False;
-      end Has_Some_Controlled_Component;
-
-   --  Start of processing for Needs_Finalization
-
+   function Needs_Conditional_Null_Excluding_Check
+     (Typ : Entity_Id) return Boolean
+   is
    begin
-      --  Certain run-time configurations and targets do not provide support
-      --  for controlled types.
-
-      if Restriction_Active (No_Finalization) then
-         return False;
-
-      --  C++ types are not considered controlled. It is assumed that the non-
-      --  Ada side will handle their clean up.
-
-      elsif Convention (Typ) = Convention_CPP then
-         return False;
-
-      --  Class-wide types are treated as controlled because derivations from
-      --  the root type may introduce controlled components.
-
-      elsif Is_Class_Wide_Type (Typ) then
-         return True;
-
-      --  Concurrent types are controlled as long as their corresponding record
-      --  is controlled.
-
-      elsif Is_Concurrent_Type (Typ)
-        and then Present (Corresponding_Record_Type (Typ))
-        and then Needs_Finalization (Corresponding_Record_Type (Typ))
-      then
-         return True;
-
-      --  Otherwise the type is controlled when it is either derived from type
-      --  [Limited_]Controlled and not subject to aspect Disable_Controlled, or
-      --  contains at least one controlled component.
-
-      else
-         return
-           Is_Controlled (Typ) or else Has_Some_Controlled_Component (Typ);
-      end if;
-   end Needs_Finalization;
+      return
+        Is_Array_Type (Typ) and then Can_Never_Be_Null (Component_Type (Typ));
+   end Needs_Conditional_Null_Excluding_Check;
 
    ----------------------------
    -- Needs_Constant_Address --
@@ -10556,7 +10539,6 @@ package body Exp_Util is
          return False;
 
       else
-
          --  Otherwise, we require the address clause to be constant because
          --  the call to the initialization procedure (or the attach code) has
          --  to happen at the point of the declaration.
@@ -10576,26 +10558,45 @@ package body Exp_Util is
      (CW_Typ : Entity_Id;
       N      : Node_Id) return Entity_Id
    is
-      Res       : constant Entity_Id := Create_Itype (E_Void, N);
-      Res_Name  : constant Name_Id   := Chars (Res);
-      Res_Scope : constant Entity_Id := Scope (Res);
+      Res : constant Entity_Id := Create_Itype (E_Void, N);
+
+      --  Capture relevant attributes of the class-wide subtype which must be
+      --  restored after the copy.
+
+      Res_Chars  : constant Name_Id   := Chars (Res);
+      Res_Is_CGE : constant Boolean   := Is_Checked_Ghost_Entity (Res);
+      Res_Is_IGE : constant Boolean   := Is_Ignored_Ghost_Entity (Res);
+      Res_Is_IGN : constant Boolean   := Is_Ignored_Ghost_Node   (Res);
+      Res_Scope  : constant Entity_Id := Scope (Res);
 
    begin
       Copy_Node (CW_Typ, Res);
-      Set_Comes_From_Source (Res, False);
-      Set_Sloc (Res, Sloc (N));
-      Set_Is_Itype (Res);
+
+      --  Restore the relevant attributes of the class-wide subtype
+
+      Set_Chars                   (Res, Res_Chars);
+      Set_Is_Checked_Ghost_Entity (Res, Res_Is_CGE);
+      Set_Is_Ignored_Ghost_Entity (Res, Res_Is_IGE);
+      Set_Is_Ignored_Ghost_Node   (Res, Res_Is_IGN);
+      Set_Scope                   (Res, Res_Scope);
+
+      --  Decorate the class-wide subtype
+
       Set_Associated_Node_For_Itype (Res, N);
-      Set_Is_Public (Res, False);   --  By default, may be changed below.
+      Set_Comes_From_Source         (Res, False);
+      Set_Ekind                     (Res, E_Class_Wide_Subtype);
+      Set_Etype                     (Res, Base_Type (CW_Typ));
+      Set_Freeze_Node               (Res, Empty);
+      Set_Is_Frozen                 (Res, False);
+      Set_Is_Itype                  (Res);
+      Set_Is_Public                 (Res, False);
+      Set_Next_Entity               (Res, Empty);
+      Set_Prev_Entity               (Res, Empty);
+      Set_Sloc                      (Res, Sloc (N));
+
       Set_Public_Status (Res);
-      Set_Chars (Res, Res_Name);
-      Set_Scope (Res, Res_Scope);
-      Set_Ekind (Res, E_Class_Wide_Subtype);
-      Set_Next_Entity (Res, Empty);
-      Set_Etype (Res, Base_Type (CW_Typ));
-      Set_Is_Frozen (Res, False);
-      Set_Freeze_Node (Res, Empty);
-      return (Res);
+
+      return Res;
    end New_Class_Wide_Subtype;
 
    --------------------------------
@@ -10692,6 +10693,12 @@ package body Exp_Util is
          return False;
       end if;
 
+      --  There are never alignment issues in CodePeer mode
+
+      if CodePeer_Mode then
+         return False;
+      end if;
+
       case Nkind (N) is
 
          --  Case of indexed component
@@ -10702,9 +10709,9 @@ package body Exp_Util is
                Ptyp : constant Entity_Id := Etype (P);
 
             begin
-               --  If we know the component size and it is less than 64, then
-               --  we are definitely OK. The back end always does assignment of
-               --  misaligned small objects correctly.
+               --  If we know the component size and it is not larger than 64,
+               --  then we are definitely OK. The back end does the assignment
+               --  of misaligned small objects correctly.
 
                if Known_Static_Component_Size (Ptyp)
                  and then Component_Size (Ptyp) <= 64
@@ -10727,13 +10734,15 @@ package body Exp_Util is
                Comp : constant Entity_Id := Entity (Selector_Name (N));
 
             begin
-               --  If there is no component clause, then we are in the clear
-               --  since the back end will never misalign a large component
-               --  unless it is forced to do so. In the clear means we need
-               --  only the recursive test on the prefix.
+               --  This is the crucial test: if the component itself causes
+               --  trouble, then we can stop and return True.
 
                if Component_May_Be_Bit_Aligned (Comp) then
                   return True;
+
+               --  Otherwise, we need to test the prefix, to see if we are
+               --  selecting from a possibly unaligned component.
+
                else
                   return Possible_Bit_Aligned_Component (P);
                end if;
@@ -10746,7 +10755,7 @@ package body Exp_Util is
             return Possible_Bit_Aligned_Component (Prefix (N));
 
          --  For an unchecked conversion, check whether the expression may
-         --  be bit-aligned.
+         --  be bit aligned.
 
          when N_Unchecked_Type_Conversion =>
             return Possible_Bit_Aligned_Component (Expression (N));
@@ -11143,7 +11152,7 @@ package body Exp_Util is
       --  Handle cases in which there is nothing to do. In GNATprove mode,
       --  removal of side effects is useful for the light expansion of
       --  renamings. This removal should only occur when not inside a
-      --  generic and not doing a pre-analysis.
+      --  generic and not doing a preanalysis.
 
       if not Expander_Active
         and (Inside_A_Generic or not Full_Analysis or not GNATprove_Mode)
@@ -11234,7 +11243,17 @@ package body Exp_Util is
          --  Generate:
          --    Rnn : Exp_Type renames Expr;
 
-         if Renaming_Req then
+         --  In GNATprove mode, we prefer to use renamings for intermediate
+         --  variables to definition of constants, due to the implicit move
+         --  operation that such a constant definition causes as part of the
+         --  support in GNATprove for ownership pointers. Hence, we generate
+         --  a renaming for a reference to an object of a nonscalar type.
+
+         if Renaming_Req
+           or else (GNATprove_Mode
+                     and then Is_Object_Reference (Exp)
+                     and then not Is_Scalar_Type (Exp_Type))
+         then
             E :=
               Make_Object_Renaming_Declaration (Loc,
                 Defining_Identifier => Def_Id,
@@ -11356,7 +11375,7 @@ package body Exp_Util is
 
       --  For expressions that denote names, we can use a renaming scheme.
       --  This is needed for correctness in the case of a volatile object of
-      --  a non-volatile type because the Make_Reference call of the "default"
+      --  a nonvolatile type because the Make_Reference call of the "default"
       --  approach would generate an illegal access value (an access value
       --  cannot designate such an object - see Analyze_Reference).
 
@@ -11378,7 +11397,7 @@ package body Exp_Util is
              Name                => Relocate_Node (Exp)));
 
          --  If this is a packed reference, or a selected component with
-         --  a non-standard representation, a reference to the temporary
+         --  a nonstandard representation, a reference to the temporary
          --  will be replaced by a copy of the original expression (see
          --  Exp_Ch2.Expand_Renaming). Otherwise the temporary must be
          --  elaborated by gigi, and is of course not to be replaced in-line
@@ -11591,6 +11610,10 @@ package body Exp_Util is
       --  why would the flag be set in the first place).
 
       Set_Assignment_OK (Res, Assignment_OK (Exp));
+
+      --  Preserve the Do_Range_Check flag in all copies
+
+      Set_Do_Range_Check (Res, Do_Range_Check (Exp));
 
       --  Finally rewrite the original expression and we are done
 
@@ -11984,7 +12007,7 @@ package body Exp_Util is
                          and then Nkind_In (N, N_Package_Body,
                                                N_Package_Specification);
       --  N is at the library level if the top-most context is a package and
-      --  the path taken to reach N does not inlcude non-package constructs.
+      --  the path taken to reach N does not include nonpackage constructs.
 
    begin
       case Nkind (N) is
@@ -12057,9 +12080,7 @@ package body Exp_Util is
       Typ     : Entity_Id;
 
    begin
-      if No (L)
-        or else Is_Empty_List (L)
-      then
+      if No (L) or else Is_Empty_List (L) then
          return False;
       end if;
 
@@ -12671,7 +12692,7 @@ package body Exp_Util is
 
             --  Mark the assignment statement as elaboration code. This allows
             --  the early call region mechanism (see Sem_Elab) to properly
-            --  ignore such assignments even though they are non-preelaborable
+            --  ignore such assignments even though they are nonpreelaborable
             --  code.
 
             Set_Is_Elaboration_Code (Asn);
@@ -13331,7 +13352,11 @@ package body Exp_Util is
    --  required for the case of False .. False, since False xor False = False.
    --  See also Silly_Boolean_Array_Not_Test
 
-   procedure Silly_Boolean_Array_Xor_Test (N : Node_Id; T : Entity_Id) is
+   procedure Silly_Boolean_Array_Xor_Test
+     (N : Node_Id;
+      R : Node_Id;
+      T : Entity_Id)
+   is
       Loc : constant Source_Ptr := Sloc (N);
       CT  : constant Entity_Id  := Component_Type (T);
 
@@ -13352,9 +13377,9 @@ package body Exp_Util is
         Make_Raise_Constraint_Error (Loc,
           Condition =>
             Make_And_Then (Loc,
-              Left_Opnd =>
+              Left_Opnd  =>
                 Make_And_Then (Loc,
-                  Left_Opnd =>
+                  Left_Opnd  =>
                     Convert_To (Standard_Boolean,
                       Make_Attribute_Reference (Loc,
                         Prefix         => New_Occurrence_Of (CT, Loc),
@@ -13366,8 +13391,8 @@ package body Exp_Util is
                         Prefix         => New_Occurrence_Of (CT, Loc),
                         Attribute_Name => Name_Last))),
 
-              Right_Opnd => Make_Non_Empty_Check (Loc, Right_Opnd (N))),
-          Reason => CE_Range_Check_Failed));
+              Right_Opnd => Make_Non_Empty_Check (Loc, R)),
+          Reason    => CE_Range_Check_Failed));
    end Silly_Boolean_Array_Xor_Test;
 
    --------------------------
@@ -13484,9 +13509,17 @@ package body Exp_Util is
          begin
             E := First_Component_Or_Discriminant (Typ);
             while Present (E) loop
-               if Component_May_Be_Bit_Aligned (E)
-                 or else Type_May_Have_Bit_Aligned_Components (Etype (E))
-               then
+               --  This is the crucial test: if the component itself causes
+               --  trouble, then we can stop and return True.
+
+               if Component_May_Be_Bit_Aligned (E) then
+                  return True;
+               end if;
+
+               --  Otherwise, we need to test its type, to see if it may
+               --  itself contain a troublesome component.
+
+               if Type_May_Have_Bit_Aligned_Components (Etype (E)) then
                   return True;
                end if;
 

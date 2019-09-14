@@ -104,7 +104,7 @@ name`'rtype_qual`_'atype_code (rtype * const restrict retarray,
 	}
 
       retarray->offset = 0;
-      GFC_DTYPE_COPY_SETRANK(retarray,array,rank);
+      retarray->dtype.rank = rank;
 
       alloc_size = GFC_DESCRIPTOR_STRIDE(retarray,rank-1) * extent[rank-1]
       		 * string_len;
@@ -225,6 +225,12 @@ void
   index_type mdelta;
   int mask_kind;
 
+  if (mask == NULL)
+    {
+      name`'rtype_qual`_'atype_code (retarray, xlen, array, pdim, string_len);
+      return;
+    }
+
   assert (xlen == string_len);
 
   dim = (*pdim) - 1;
@@ -296,7 +302,7 @@ void
       		 * string_len;
 
       retarray->offset = 0;
-      GFC_DTYPE_COPY_SETRANK(retarray,array,rank);
+      retarray->dtype.rank = rank;
 
       if (alloc_size == 0)
 	{
@@ -408,7 +414,7 @@ void
   index_type dim;
 
 
-  if (*mask)
+  if (mask == NULL || *mask)
     {
       name`'rtype_qual`_'atype_code (retarray, xlen, array, pdim, string_len);
       return;
@@ -457,7 +463,7 @@ void
 	}
 
       retarray->offset = 0;
-      GFC_DTYPE_COPY_SETRANK(retarray,array,rank);
+      retarray->dtype.rank = rank;
 
       alloc_size = GFC_DESCRIPTOR_STRIDE(retarray,rank-1) * extent[rank-1]
       		 * string_len;

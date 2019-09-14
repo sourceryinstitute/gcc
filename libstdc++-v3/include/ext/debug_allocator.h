@@ -1,6 +1,6 @@
 // Allocators -*- C++ -*-
 
-// Copyright (C) 2001-2018 Free Software Foundation, Inc.
+// Copyright (C) 2001-2019 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -49,8 +49,6 @@
 namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
-
-  using std::size_t;
 
   /**
    *  @brief  A meta-allocator with debugging bits.
@@ -103,7 +101,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       size_type _S_extra()
       {
-	const size_t __obj_size = sizeof(value_type);
+	const std::size_t __obj_size = sizeof(value_type);
 	return (sizeof(size_type) + __obj_size - 1) / __obj_size; 
       }
 
@@ -118,7 +116,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       debug_allocator(const _Alloc& __a)
       : _M_allocator(__a), _M_extra(_S_extra()) { }
 
-      pointer
+      _GLIBCXX_NODISCARD pointer
       allocate(size_type __n)
       {
         pointer __res = _M_allocator.allocate(__n + _M_extra);      
@@ -127,7 +125,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         return __res + _M_extra;
       }
 
-      pointer
+      _GLIBCXX_NODISCARD pointer
       allocate(size_type __n, const void* __hint)
       {
         pointer __res = _M_allocator.allocate(__n + _M_extra, __hint);
@@ -174,16 +172,18 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       max_size() const throw()
       { return _Traits::max_size(_M_allocator) - _M_extra; }
 
-      friend bool
-      operator==(const debug_allocator& __lhs, const debug_allocator& __rhs)
-      { return __lhs._M_allocator == __rhs._M_allocator; }
-    };
+      template<typename _Alloc2>
+	friend bool
+	operator==(const debug_allocator& __lhs,
+		   const debug_allocator<_Alloc2>& __rhs) _GLIBCXX_NOTHROW
+	{ return __lhs._M_allocator == debug_allocator(__rhs)._M_allocator; }
 
-  template<typename _Alloc>
-    inline bool
-    operator!=(const debug_allocator<_Alloc>& __lhs,
-	       const debug_allocator<_Alloc>& __rhs)
-    { return !(__lhs == __rhs); }
+      template<typename _Alloc2>
+	friend bool
+	operator!=(const debug_allocator& __lhs,
+		   const debug_allocator<_Alloc2>& __rhs) _GLIBCXX_NOTHROW
+	{ return !(__lhs == __rhs); }
+    };
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace

@@ -1,5 +1,5 @@
 /* SSA Jump Threading
-   Copyright (C) 2005-2018 Free Software Foundation, Inc.
+   Copyright (C) 2005-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -261,6 +261,11 @@ thread_jumps::profitable_jump_thread_path (basic_block bbi, tree name,
 	       gsi_next_nondebug (&gsi))
 	    {
 	      gimple *stmt = gsi_stmt (gsi);
+	      if (gimple_call_internal_p (stmt, IFN_UNIQUE))
+		{
+		  m_path.pop ();
+		  return NULL;
+		}
 	      /* Do not count empty statements and labels.  */
 	      if (gimple_code (stmt) != GIMPLE_NOP
 		  && !(gimple_code (stmt) == GIMPLE_ASSIGN

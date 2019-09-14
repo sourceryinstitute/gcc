@@ -1,5 +1,5 @@
 /* Subroutines used for MIPS code generation.
-   Copyright (C) 1989-2018 Free Software Foundation, Inc.
+   Copyright (C) 1989-2019 Free Software Foundation, Inc.
    Contributed by A. Lichnewsky, lich@inria.inria.fr.
    Changes by Michael Meissner, meissner@osf.org.
    64-bit r4000 support by Ian Lance Taylor, ian@cygnus.com, and
@@ -196,6 +196,16 @@ enum mips_address_type {
   ADDRESS_LO_SUM,
   ADDRESS_CONST_INT,
   ADDRESS_SYMBOLIC
+};
+
+/* Classifies an unconditional branch of interest for the P6600.  */
+
+enum mips_ucbranch_type
+{
+  /* May not even be a branch.  */
+  UC_UNDEFINED,
+  UC_BALC,
+  UC_OTHER
 };
 
 /* Macros to create an enumeration identifier for a function prototype.  */
@@ -491,9 +501,9 @@ unsigned int mips_base_compression_flags;
 static int mips_base_schedule_insns; /* flag_schedule_insns */
 static int mips_base_reorder_blocks_and_partition; /* flag_reorder... */
 static int mips_base_move_loop_invariants; /* flag_move_loop_invariants */
-static int mips_base_align_loops; /* align_loops */
-static int mips_base_align_jumps; /* align_jumps */
-static int mips_base_align_functions; /* align_functions */
+static const char *mips_base_align_loops; /* align_loops */
+static const char *mips_base_align_jumps; /* align_jumps */
+static const char *mips_base_align_functions; /* align_functions */
 
 /* Index [M][R] is true if register R is allowed to hold a value of mode M.  */
 static bool mips_hard_regno_mode_ok_p[MAX_MACHINE_MODE][FIRST_PSEUDO_REGISTER];
@@ -826,7 +836,13 @@ static const struct mips_rtx_cost_data
   { /* Loongson-2F */
     DEFAULT_COSTS
   },
-  { /* Loongson-3A */
+  { /* Loongson gs464.  */
+    DEFAULT_COSTS
+  },
+  { /* Loongson gs464e.  */
+    DEFAULT_COSTS
+  },
+  { /* Loongson gs264e.  */
     DEFAULT_COSTS
   },
   { /* M4k */
@@ -1125,6 +1141,19 @@ static const struct mips_rtx_cost_data
     COSTS_N_INSNS (5),            /* int_mult_di */
     COSTS_N_INSNS (36),           /* int_div_si */
     COSTS_N_INSNS (36),           /* int_div_di */
+		    2,            /* branch_cost */
+		    4             /* memory_latency */
+  },
+  { /* P6600 */
+    COSTS_N_INSNS (4),            /* fp_add */
+    COSTS_N_INSNS (5),            /* fp_mult_sf */
+    COSTS_N_INSNS (5),            /* fp_mult_df */
+    COSTS_N_INSNS (17),           /* fp_div_sf */
+    COSTS_N_INSNS (17),           /* fp_div_df */
+    COSTS_N_INSNS (5),            /* int_mult_si */
+    COSTS_N_INSNS (5),            /* int_mult_di */
+    COSTS_N_INSNS (8),            /* int_div_si */
+    COSTS_N_INSNS (8),            /* int_div_di */
 		    2,            /* branch_cost */
 		    4             /* memory_latency */
   }
@@ -3002,7 +3031,7 @@ static void
 mips_emit_move_or_split (rtx dest, rtx src, enum mips_split_type split_type)
 {
   if (mips_split_move_p (dest, src, split_type))
-    mips_split_move (dest, src, split_type);
+    mips_split_move (dest, src, split_type, NULL);
   else
     mips_emit_move (dest, src);
 }
@@ -4751,10 +4780,11 @@ mips_split_move_p (rtx dest, rtx src, enum mips_split_type split_type)
 }
 
 /* Split a move from SRC to DEST, given that mips_split_move_p holds.
-   SPLIT_TYPE describes the split condition.  */
+   SPLIT_TYPE describes the split condition.  INSN is the insn being
+   split, if we know it, NULL otherwise.  */
 
 void
-mips_split_move (rtx dest, rtx src, enum mips_split_type split_type)
+mips_split_move (rtx dest, rtx src, enum mips_split_type split_type, rtx insn_)
 {
   rtx low_dest;
 
@@ -4812,6 +4842,32 @@ mips_split_move (rtx dest, rtx src, enum mips_split_type split_type)
 	{
 	  mips_emit_move (low_dest, mips_subword (src, false));
 	  mips_emit_move (mips_subword (dest, true), mips_subword (src, true));
+	}
+    }
+
+  /* This is a hack.  See if the next insn uses DEST and if so, see if we
+     can forward SRC for DEST.  This is most useful if the next insn is a
+     simple store.   */
+  rtx_insn *insn = (rtx_insn *)insn_;
+  struct mips_address_info addr = {};
+  if (insn)
+    {
+      rtx_insn *next = next_nonnote_nondebug_insn_bb (insn);
+      if (next)
+	{
+	  rtx set = single_set (next);
+	  if (set && SET_SRC (set) == dest)
+	    {
+	      if (MEM_P (src))
+		{
+		  rtx tmp = XEXP (src, 0);
+		  mips_classify_address (&addr, tmp, GET_MODE (tmp), true);
+		  if (addr.reg && REGNO (addr.reg) != REGNO (dest))
+		    validate_change (next, &SET_SRC (set), src, false);
+		}
+	      else
+		validate_change (next, &SET_SRC (set), src, false);
+	    }
 	}
     }
 }
@@ -5041,7 +5097,7 @@ mips_split_move_insn_p (rtx dest, rtx src, rtx insn)
 void
 mips_split_move_insn (rtx dest, rtx src, rtx insn)
 {
-  mips_split_move (dest, src, mips_insn_split_type (insn));
+  mips_split_move (dest, src, mips_insn_split_type (insn), insn);
 }
 
 /* Return the appropriate instructions to move SRC into DEST.  Assume
@@ -5920,17 +5976,16 @@ mips_strict_argument_naming (cumulative_args_t ca ATTRIBUTE_UNUSED)
 /* Implement TARGET_FUNCTION_ARG.  */
 
 static rtx
-mips_function_arg (cumulative_args_t cum_v, machine_mode mode,
-		   const_tree type, bool named)
+mips_function_arg (cumulative_args_t cum_v, const function_arg_info &arg)
 {
   CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
   struct mips_arg_info info;
 
-  /* We will be called with a mode of VOIDmode after the last argument
+  /* We will be called with an end marker after the last argument
      has been seen.  Whatever we return will be passed to the call expander.
      If we need a MIPS16 fp_code, return a REG with the code stored as
      the mode.  */
-  if (mode == VOIDmode)
+  if (arg.end_marker_p ())
     {
       if (TARGET_MIPS16 && cum->fp_code != 0)
 	return gen_rtx_REG ((machine_mode) cum->fp_code, 0);
@@ -5938,7 +5993,7 @@ mips_function_arg (cumulative_args_t cum_v, machine_mode mode,
 	return NULL;
     }
 
-  mips_get_arg_info (&info, cum, mode, type, named);
+  mips_get_arg_info (&info, cum, arg.mode, arg.type, arg.named);
 
   /* Return straight away if the whole argument is passed on the stack.  */
   if (info.reg_offset == MAX_ARGS_IN_REGISTERS)
@@ -5949,16 +6004,16 @@ mips_function_arg (cumulative_args_t cum_v, machine_mode mode,
      in a floating-point register.  */
   if (TARGET_NEWABI
       && TARGET_HARD_FLOAT
-      && named
-      && type != 0
-      && TREE_CODE (type) == RECORD_TYPE
-      && TYPE_SIZE_UNIT (type)
-      && tree_fits_uhwi_p (TYPE_SIZE_UNIT (type)))
+      && arg.named
+      && arg.type != 0
+      && TREE_CODE (arg.type) == RECORD_TYPE
+      && TYPE_SIZE_UNIT (arg.type)
+      && tree_fits_uhwi_p (TYPE_SIZE_UNIT (arg.type)))
     {
       tree field;
 
       /* First check to see if there is any such field.  */
-      for (field = TYPE_FIELDS (type); field; field = DECL_CHAIN (field))
+      for (field = TYPE_FIELDS (arg.type); field; field = DECL_CHAIN (field))
 	if (TREE_CODE (field) == FIELD_DECL
 	    && SCALAR_FLOAT_TYPE_P (TREE_TYPE (field))
 	    && TYPE_PRECISION (TREE_TYPE (field)) == BITS_PER_WORD
@@ -5977,10 +6032,10 @@ mips_function_arg (cumulative_args_t cum_v, machine_mode mode,
 
 	  /* assign_parms checks the mode of ENTRY_PARM, so we must
 	     use the actual mode here.  */
-	  ret = gen_rtx_PARALLEL (mode, rtvec_alloc (info.reg_words));
+	  ret = gen_rtx_PARALLEL (arg.mode, rtvec_alloc (info.reg_words));
 
 	  bitpos = 0;
-	  field = TYPE_FIELDS (type);
+	  field = TYPE_FIELDS (arg.type);
 	  for (i = 0; i < info.reg_words; i++)
 	    {
 	      rtx reg;
@@ -6013,13 +6068,13 @@ mips_function_arg (cumulative_args_t cum_v, machine_mode mode,
      and the imaginary part goes in the upper register.  */
   if (TARGET_NEWABI
       && info.fpr_p
-      && GET_MODE_CLASS (mode) == MODE_COMPLEX_FLOAT)
+      && GET_MODE_CLASS (arg.mode) == MODE_COMPLEX_FLOAT)
     {
       rtx real, imag;
       machine_mode inner;
       unsigned int regno;
 
-      inner = GET_MODE_INNER (mode);
+      inner = GET_MODE_INNER (arg.mode);
       regno = FP_ARG_FIRST + info.reg_offset;
       if (info.reg_words * UNITS_PER_WORD == GET_MODE_SIZE (inner))
 	{
@@ -6037,23 +6092,23 @@ mips_function_arg (cumulative_args_t cum_v, machine_mode mode,
 				    gen_rtx_REG (inner,
 						 regno + info.reg_words / 2),
 				    GEN_INT (GET_MODE_SIZE (inner)));
-	  return gen_rtx_PARALLEL (mode, gen_rtvec (2, real, imag));
+	  return gen_rtx_PARALLEL (arg.mode, gen_rtvec (2, real, imag));
 	}
     }
 
-  return gen_rtx_REG (mode, mips_arg_regno (&info, TARGET_HARD_FLOAT));
+  return gen_rtx_REG (arg.mode, mips_arg_regno (&info, TARGET_HARD_FLOAT));
 }
 
 /* Implement TARGET_FUNCTION_ARG_ADVANCE.  */
 
 static void
-mips_function_arg_advance (cumulative_args_t cum_v, machine_mode mode,
-			   const_tree type, bool named)
+mips_function_arg_advance (cumulative_args_t cum_v,
+			   const function_arg_info &arg)
 {
   CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
   struct mips_arg_info info;
 
-  mips_get_arg_info (&info, cum, mode, type, named);
+  mips_get_arg_info (&info, cum, arg.mode, arg.type, arg.named);
 
   if (!info.fpr_p)
     cum->gp_reg_found = true;
@@ -6063,7 +6118,7 @@ mips_function_arg_advance (cumulative_args_t cum_v, machine_mode mode,
      either the o32 or the o64 ABI, both of which pass at most 2 arguments
      in FPRs.  */
   if (cum->arg_number < 2 && info.fpr_p)
-    cum->fp_code += (mode == SFmode ? 1 : 2) << (cum->arg_number * 2);
+    cum->fp_code += (arg.mode == SFmode ? 1 : 2) << (cum->arg_number * 2);
 
   /* Advance the register count.  This has the effect of setting
      num_gprs to MAX_ARGS_IN_REGISTERS if a doubleword-aligned
@@ -6084,12 +6139,12 @@ mips_function_arg_advance (cumulative_args_t cum_v, machine_mode mode,
 /* Implement TARGET_ARG_PARTIAL_BYTES.  */
 
 static int
-mips_arg_partial_bytes (cumulative_args_t cum,
-			machine_mode mode, tree type, bool named)
+mips_arg_partial_bytes (cumulative_args_t cum, const function_arg_info &arg)
 {
   struct mips_arg_info info;
 
-  mips_get_arg_info (&info, get_cumulative_args (cum), mode, type, named);
+  mips_get_arg_info (&info, get_cumulative_args (cum),
+		     arg.mode, arg.type, arg.named);
   return info.stack_words > 0 ? info.reg_words * UNITS_PER_WORD : 0;
 }
 
@@ -6179,38 +6234,34 @@ mips_pad_reg_upward (machine_mode mode, tree type)
 /* Return nonzero when an argument must be passed by reference.  */
 
 static bool
-mips_pass_by_reference (cumulative_args_t cum ATTRIBUTE_UNUSED,
-			machine_mode mode, const_tree type,
-			bool named ATTRIBUTE_UNUSED)
+mips_pass_by_reference (cumulative_args_t, const function_arg_info &arg)
 {
   if (mips_abi == ABI_EABI)
     {
       int size;
 
       /* ??? How should SCmode be handled?  */
-      if (mode == DImode || mode == DFmode
-	  || mode == DQmode || mode == UDQmode
-	  || mode == DAmode || mode == UDAmode)
+      if (arg.mode == DImode || arg.mode == DFmode
+	  || arg.mode == DQmode || arg.mode == UDQmode
+	  || arg.mode == DAmode || arg.mode == UDAmode)
 	return 0;
 
-      size = type ? int_size_in_bytes (type) : GET_MODE_SIZE (mode);
+      size = arg.type_size_in_bytes ();
       return size == -1 || size > UNITS_PER_WORD;
     }
   else
     {
       /* If we have a variable-sized parameter, we have no choice.  */
-      return targetm.calls.must_pass_in_stack (mode, type);
+      return targetm.calls.must_pass_in_stack (arg);
     }
 }
 
 /* Implement TARGET_CALLEE_COPIES.  */
 
 static bool
-mips_callee_copies (cumulative_args_t cum ATTRIBUTE_UNUSED,
-		    machine_mode mode ATTRIBUTE_UNUSED,
-		    const_tree type ATTRIBUTE_UNUSED, bool named)
+mips_callee_copies (cumulative_args_t, const function_arg_info &arg)
 {
-  return mips_abi == ABI_EABI && named;
+  return mips_abi == ABI_EABI && arg.named;
 }
 
 /* See whether VALTYPE is a record whose fields should be returned in
@@ -6490,9 +6541,9 @@ mips_return_in_memory (const_tree type, const_tree fndecl ATTRIBUTE_UNUSED)
 /* Implement TARGET_SETUP_INCOMING_VARARGS.  */
 
 static void
-mips_setup_incoming_varargs (cumulative_args_t cum, machine_mode mode,
-			     tree type, int *pretend_size ATTRIBUTE_UNUSED,
-			     int no_rtl)
+mips_setup_incoming_varargs (cumulative_args_t cum,
+			     const function_arg_info &arg,
+			     int *pretend_size ATTRIBUTE_UNUSED, int no_rtl)
 {
   CUMULATIVE_ARGS local_cum;
   int gp_saved, fp_saved;
@@ -6501,8 +6552,7 @@ mips_setup_incoming_varargs (cumulative_args_t cum, machine_mode mode,
      argument.  Advance a local copy of CUM past the last "real" named
      argument, to find out how many registers are left over.  */
   local_cum = *get_cumulative_args (cum);
-  mips_function_arg_advance (pack_cumulative_args (&local_cum), mode, type,
-			     true);
+  mips_function_arg_advance (pack_cumulative_args (&local_cum), arg);
 
   /* Found out how many registers we need to save.  */
   gp_saved = MAX_ARGS_IN_REGISTERS - local_cum.num_gprs;
@@ -6724,7 +6774,7 @@ mips_std_gimplify_va_arg_expr (tree valist, tree type, gimple_seq *pre_p,
   unsigned HOST_WIDE_INT align, boundary;
   bool indirect;
 
-  indirect = pass_by_reference (NULL, TYPE_MODE (type), type, false);
+  indirect = pass_va_arg_by_reference (type);
   if (indirect)
     type = build_pointer_type (type);
 
@@ -6811,7 +6861,7 @@ mips_gimplify_va_arg_expr (tree valist, tree type, gimple_seq *pre_p,
   tree addr;
   bool indirect_p;
 
-  indirect_p = pass_by_reference (NULL, TYPE_MODE (type), type, 0);
+  indirect_p = pass_va_arg_by_reference (type);
   if (indirect_p)
     type = build_pointer_type (type);
 
@@ -7252,7 +7302,8 @@ mips_output_args_xfer (int fp_code, char direction)
       else
 	mips_output_64bit_xfer (direction, gparg, fparg);
 
-      mips_function_arg_advance (pack_cumulative_args (&cum), mode, NULL, true);
+      function_arg_info arg (mode, /*named=*/true);
+      mips_function_arg_advance (pack_cumulative_args (&cum), arg);
     }
 }
 
@@ -7882,15 +7933,15 @@ mips_use_by_pieces_infrastructure_p (unsigned HOST_WIDE_INT size,
 {
   if (op == STORE_BY_PIECES)
     return mips_store_by_pieces_p (size, align);
-  if (op == MOVE_BY_PIECES && HAVE_movmemsi)
+  if (op == MOVE_BY_PIECES && HAVE_cpymemsi)
     {
-      /* movmemsi is meant to generate code that is at least as good as
-	 move_by_pieces.  However, movmemsi effectively uses a by-pieces
+      /* cpymemsi is meant to generate code that is at least as good as
+	 move_by_pieces.  However, cpymemsi effectively uses a by-pieces
 	 implementation both for moves smaller than a word and for
 	 word-aligned moves of no more than MIPS_MAX_MOVE_BYTES_STRAIGHT
 	 bytes.  We should allow the tree-level optimisers to do such
 	 moves by pieces, as it often exposes other optimization
-	 opportunities.  We might as well continue to use movmemsi at
+	 opportunities.  We might as well continue to use cpymemsi at
 	 the rtl level though, as it produces better code when
 	 scheduling is disabled (such as at -O).  */
       if (currently_expanding_to_rtl)
@@ -8035,7 +8086,7 @@ mips_block_move_straight (rtx dest, rtx src, HOST_WIDE_INT length)
       src = adjust_address (src, BLKmode, offset);
       dest = adjust_address (dest, BLKmode, offset);
       move_by_pieces (dest, src, length - offset,
-		      MIN (MEM_ALIGN (src), MEM_ALIGN (dest)), 0);
+		      MIN (MEM_ALIGN (src), MEM_ALIGN (dest)), RETURN_BEGIN);
     }
 }
 
@@ -8109,7 +8160,7 @@ mips_block_move_loop (rtx dest, rtx src, HOST_WIDE_INT length,
     emit_insn (gen_nop ());
 }
 
-/* Expand a movmemsi instruction, which copies LENGTH bytes from
+/* Expand a cpymemsi instruction, which copies LENGTH bytes from
    memory reference SRC to memory reference DEST.  */
 
 bool
@@ -9532,7 +9583,7 @@ mips_dwarf_frame_reg_mode (int regno)
 {
   machine_mode mode = default_dwarf_frame_reg_mode (regno);
 
-  if (FP_REG_P (regno) && mips_abi == ABI_32 && TARGET_FLOAT64)
+  if (FP_REG_P (regno) && mips_abi == ABI_32 && !TARGET_FLOAT32)
     mode = SImode;
 
   return mode;
@@ -10585,7 +10636,7 @@ mips_global_pointer (void)
   if (TARGET_CALL_SAVED_GP && crtl->is_leaf)
     for (regno = GP_REG_FIRST; regno <= GP_REG_LAST; regno++)
       if (!df_regs_ever_live_p (regno)
-	  && call_really_used_regs[regno]
+	  && call_used_regs[regno]
 	  && !fixed_regs[regno]
 	  && regno != PIC_FUNCTION_ADDR_REGNUM)
 	return regno;
@@ -10738,7 +10789,7 @@ mips_interrupt_extra_call_saved_reg_p (unsigned int regno)
 
       /* Otherwise, return true for registers that aren't ordinarily
 	 call-clobbered.  */
-      return call_really_used_regs[regno];
+      return call_used_regs[regno];
     }
 
   return false;
@@ -10761,12 +10812,12 @@ mips_cfun_call_saved_reg_p (unsigned int regno)
     return true;
 
   /* call_insns preserve $28 unless they explicitly say otherwise,
-     so call_really_used_regs[] treats $28 as call-saved.  However,
+     so call_used_regs[] treats $28 as call-saved.  However,
      we want the ABI property rather than the default call_insn
      property here.  */
   return (regno == GLOBAL_POINTER_REGNUM
 	  ? TARGET_CALL_SAVED_GP
-	  : !call_really_used_regs[regno]);
+	  : !call_used_regs[regno]);
 }
 
 /* Return true if the function body might clobber register REGNO.
@@ -11922,7 +11973,7 @@ static void
 mips_emit_probe_stack_range (HOST_WIDE_INT first, HOST_WIDE_INT size)
 {
   if (TARGET_MIPS16)
-    sorry ("-fstack-check=specific not implemented for MIPS16");
+    sorry ("%<-fstack-check=specific%> not implemented for MIPS16");
 
   /* See if we have a constant small number of probes to generate.  If so,
      that's the easy case.  */
@@ -12774,8 +12825,9 @@ mips_hard_regno_mode_ok_uncached (unsigned int regno, machine_mode mode)
       if (mode == CCFmode)
 	return !(TARGET_FLOATXX && (regno & 1) != 0);
 
-      /* Allow 64-bit vector modes for Loongson-2E/2F.  */
-      if (TARGET_LOONGSON_VECTORS
+      /* Allow 64-bit vector modes for Loongson MultiMedia extensions
+	 Instructions (MMI).  */
+      if (TARGET_LOONGSON_MMI
 	  && (mode == V2SImode
 	      || mode == V4HImode
 	      || mode == V8QImode
@@ -12876,7 +12928,8 @@ mips_hard_regno_scratch_ok (unsigned int regno)
    registers with MODE > 64 bits are part clobbered too.  */
 
 static bool
-mips_hard_regno_call_part_clobbered (unsigned int regno, machine_mode mode)
+mips_hard_regno_call_part_clobbered (rtx_insn *insn ATTRIBUTE_UNUSED,
+				     unsigned int regno, machine_mode mode)
 {
   if (TARGET_FLOATXX
       && hard_regno_nregs (regno, mode) == 1
@@ -12922,13 +12975,13 @@ mips_class_max_nregs (enum reg_class rclass, machine_mode mode)
   HARD_REG_SET left;
 
   size = 0x8000;
-  COPY_HARD_REG_SET (left, reg_class_contents[(int) rclass]);
+  left = reg_class_contents[rclass];
   if (hard_reg_set_intersect_p (left, reg_class_contents[(int) ST_REGS]))
     {
       if (mips_hard_regno_mode_ok (ST_REG_FIRST, mode))
 	size = MIN (size, 4);
 
-      AND_COMPL_HARD_REG_SET (left, reg_class_contents[(int) ST_REGS]);
+      left &= ~reg_class_contents[ST_REGS];
     }
   if (hard_reg_set_intersect_p (left, reg_class_contents[(int) FP_REGS]))
     {
@@ -12940,7 +12993,7 @@ mips_class_max_nregs (enum reg_class rclass, machine_mode mode)
 	    size = MIN (size, UNITS_PER_FPREG);
 	}
 
-      AND_COMPL_HARD_REG_SET (left, reg_class_contents[(int) FP_REGS]);
+      left &= ~reg_class_contents[FP_REGS];
     }
   if (!hard_reg_set_empty_p (left))
     size = MIN (size, UNITS_PER_WORD);
@@ -13345,7 +13398,7 @@ mips_vector_mode_supported_p (machine_mode mode)
     case E_V2SImode:
     case E_V4HImode:
     case E_V8QImode:
-      return TARGET_LOONGSON_VECTORS;
+      return TARGET_LOONGSON_MMI;
 
     default:
       return MSA_SUPPORTED_MODE_P (mode);
@@ -13402,7 +13455,7 @@ mips_preferred_simd_mode (scalar_mode mode)
 /* Implement TARGET_VECTORIZE_AUTOVECTORIZE_VECTOR_SIZES.  */
 
 static void
-mips_autovectorize_vector_sizes (vector_sizes *sizes)
+mips_autovectorize_vector_sizes (vector_sizes *sizes, bool)
 {
   if (ISA_HAS_MSA)
     sizes->safe_push (16);
@@ -14578,6 +14631,7 @@ mips_issue_rate (void)
     case PROCESSOR_OCTEON2:
     case PROCESSOR_OCTEON3:
     case PROCESSOR_I6400:
+    case PROCESSOR_GS264E:
       return 2;
 
     case PROCESSOR_SB1:
@@ -14590,8 +14644,10 @@ mips_issue_rate (void)
 
     case PROCESSOR_LOONGSON_2E:
     case PROCESSOR_LOONGSON_2F:
-    case PROCESSOR_LOONGSON_3A:
+    case PROCESSOR_GS464:
+    case PROCESSOR_GS464E:
     case PROCESSOR_P5600:
+    case PROCESSOR_P6600:
       return 4;
 
     case PROCESSOR_XLP:
@@ -14721,13 +14777,13 @@ mips_multipass_dfa_lookahead (void)
   if (TUNE_SB1)
     return 4;
 
-  if (TUNE_LOONGSON_2EF || TUNE_LOONGSON_3A)
+  if (TUNE_LOONGSON_2EF || TUNE_GS464 || TUNE_GS464E)
     return 4;
 
-  if (TUNE_OCTEON)
+  if (TUNE_OCTEON || TUNE_GS264E)
     return 2;
 
-  if (TUNE_P5600 || TUNE_I6400)
+  if (TUNE_P5600 || TUNE_P6600 || TUNE_I6400)
     return 4;
 
   return 0;
@@ -14833,8 +14889,7 @@ vr4130_true_reg_dependence_p_1 (rtx x, const_rtx pat ATTRIBUTE_UNUSED,
 static bool
 vr4130_true_reg_dependence_p (rtx insn)
 {
-  note_stores (PATTERN (vr4130_last_insn),
-	       vr4130_true_reg_dependence_p_1, &insn);
+  note_stores (vr4130_last_insn, vr4130_true_reg_dependence_p_1, &insn);
   return insn == 0;
 }
 
@@ -15117,6 +15172,24 @@ mips_prefetch_cookie (rtx write, rtx locality)
   /* store_retained / load_retained.  */
   return GEN_INT (INTVAL (write) + 6);
 }
+
+/* Loongson EXT2 only implements pref hint=0 (prefetch for load) and hint=1
+   (prefetch for store), other hint just scale to hint = 0 and hint = 1.  */
+
+rtx
+mips_loongson_ext2_prefetch_cookie (rtx write, rtx)
+{
+  /* store.  */
+  if (INTVAL (write) == 1)
+    return GEN_INT (INTVAL (write));
+
+  /* load.  */
+  if (INTVAL (write) == 0)
+    return GEN_INT (INTVAL (write));
+
+  gcc_unreachable ();
+}
+
 
 /* Flags that indicate when a built-in function is available.
 
@@ -15179,7 +15252,7 @@ AVAIL_NON_MIPS16 (dspr2, TARGET_DSPR2)
 AVAIL_NON_MIPS16 (dsp_32, !TARGET_64BIT && TARGET_DSP)
 AVAIL_NON_MIPS16 (dsp_64, TARGET_64BIT && TARGET_DSP)
 AVAIL_NON_MIPS16 (dspr2_32, !TARGET_64BIT && TARGET_DSPR2)
-AVAIL_NON_MIPS16 (loongson, TARGET_LOONGSON_VECTORS)
+AVAIL_NON_MIPS16 (loongson, TARGET_LOONGSON_MMI)
 AVAIL_NON_MIPS16 (cache, TARGET_CACHE_BUILTIN)
 AVAIL_NON_MIPS16 (msa, TARGET_MSA)
 
@@ -16788,6 +16861,19 @@ mips_expand_builtin_insn (enum insn_code icode, unsigned int nops,
       std::swap (ops[1], ops[2]);
       break;
 
+    case CODE_FOR_msa_maddv_b:
+    case CODE_FOR_msa_maddv_h:
+    case CODE_FOR_msa_maddv_w:
+    case CODE_FOR_msa_maddv_d:
+    case CODE_FOR_msa_fmadd_w:
+    case CODE_FOR_msa_fmadd_d:
+    case CODE_FOR_msa_fmsub_w:
+    case CODE_FOR_msa_fmsub_d:
+      /* fma(a, b, c) results into (a * b + c), however builtin_msa_fmadd expects
+	 it to be (a + b * c).  Swap the 1st and 3rd operands.  */
+      std::swap (ops[1], ops[3]);
+      break;
+
     case CODE_FOR_msa_slli_b:
     case CODE_FOR_msa_slli_h:
     case CODE_FOR_msa_slli_w:
@@ -17123,7 +17209,7 @@ mips_expand_builtin (tree exp, rtx target, rtx subtarget ATTRIBUTE_UNUSED,
   const struct mips_builtin_description *d;
 
   fndecl = TREE_OPERAND (CALL_EXPR_FN (exp), 0);
-  fcode = DECL_FUNCTION_CODE (fndecl);
+  fcode = DECL_MD_FUNCTION_CODE (fndecl);
   gcc_assert (fcode < ARRAY_SIZE (mips_builtins));
   d = &mips_builtins[fcode];
   avail = d->avail ();
@@ -17700,7 +17786,7 @@ r10k_needs_protection_p (rtx_insn *insn)
 
   if (mips_r10k_cache_barrier == R10K_CACHE_BARRIER_STORE)
     {
-      note_stores (PATTERN (insn), r10k_needs_protection_p_store, &insn);
+      note_stores (insn, r10k_needs_protection_p_store, &insn);
       return insn == NULL_RTX;
     }
 
@@ -17799,7 +17885,7 @@ r10k_insert_cache_barriers (void)
 		  if (r10k_needs_protection_p (insn))
 		    {
 		      emit_insn_before (gen_r10k_cache_barrier (),
-					unprotected_region);
+					as_a <rtx_insn *> (unprotected_region));
 		      unprotected_region = NULL_RTX;
 		    }
 		}
@@ -18209,7 +18295,7 @@ mips_sim_issue_insn (struct mips_sim *state, rtx_insn *insn)
 						    state->insns_left);
 
   mips_sim_insn = insn;
-  note_stores (PATTERN (insn), mips_sim_record_set, state);
+  note_stores (insn, mips_sim_record_set, state);
 }
 
 /* Simulate issuing a NOP in state STATE.  */
@@ -18515,7 +18601,7 @@ vr4130_align_insns (void)
 	}
 
       /* See whether INSN is an aligned label.  */
-      if (LABEL_P (insn) && label_to_alignment (insn) >= 3)
+      if (LABEL_P (insn) && label_to_alignment (insn).levels[0].log >= 3)
 	aligned_p = true;
     }
   dfa_finish ();
@@ -18647,6 +18733,29 @@ mips_orphaned_high_part_p (mips_offset_table *htab, rtx_insn *insn)
   return false;
 }
 
+/* Subroutine of mips_avoid_hazard.  We classify unconditional branches
+   of interest for the P6600 for performance reasons.  We're interested
+   in differentiating BALC from JIC, JIALC and BC.  */
+
+static enum mips_ucbranch_type
+mips_classify_branch_p6600 (rtx_insn *insn)
+{
+  /* We ignore sequences here as they represent a filled delay slot.  */
+  if (!insn
+      || !USEFUL_INSN_P (insn)
+      || GET_CODE (PATTERN (insn)) == SEQUENCE)
+    return UC_UNDEFINED;
+
+  if (get_attr_jal (insn) == JAL_INDIRECT /* JIC and JIALC.  */
+      || get_attr_type (insn) == TYPE_JUMP) /* BC.  */
+    return UC_OTHER;
+
+  if (CALL_P (insn) && get_attr_jal (insn) == JAL_DIRECT)
+    return UC_BALC;
+
+  return UC_UNDEFINED;
+}
+
 /* Subroutine of mips_reorg_process_insns.  If there is a hazard between
    INSN and a previous instruction, avoid it by inserting nops after
    instruction AFTER.
@@ -18699,14 +18808,40 @@ mips_avoid_hazard (rtx_insn *after, rtx_insn *insn, int *hilo_delay,
 	   && GET_CODE (pattern) != ASM_INPUT
 	   && asm_noperands (pattern) < 0)
     nops = 1;
+  /* The P6600's branch predictor can handle static sequences of back-to-back
+     branches in the following cases:
+
+     (1) BALC followed by any conditional compact branch
+     (2) BALC followed by BALC
+
+     Any other combinations of compact branches will incur performance
+     penalty.  Inserting a no-op only costs space as the dispatch unit will
+     disregard the nop.  */
+  else if (TUNE_P6600 && TARGET_CB_MAYBE && !optimize_size
+	   && ((mips_classify_branch_p6600 (after) == UC_BALC
+		&& mips_classify_branch_p6600 (insn) == UC_OTHER)
+	       || (mips_classify_branch_p6600 (insn) == UC_BALC
+		   && mips_classify_branch_p6600 (after) == UC_OTHER)))
+    nops = 1;
   else
     nops = 0;
 
   /* Insert the nops between this instruction and the previous one.
      Each new nop takes us further from the last hilo hazard.  */
   *hilo_delay += nops;
+
+  /* Move to the next real instruction if we are inserting a NOP and this
+     instruction is a call with debug information.  The reason being that
+     we can't separate the call from the debug info.   */
+  rtx_insn *real_after = after;
+  if (real_after && nops && CALL_P (real_after))
+    while (real_after
+	   && (NOTE_P (NEXT_INSN (real_after))
+	       || BARRIER_P (NEXT_INSN (real_after))))
+      real_after = NEXT_INSN (real_after);
+
   while (nops-- > 0)
-    emit_insn_after (gen_hazard_nop (), after);
+    emit_insn_after (gen_hazard_nop (), real_after);
 
   /* Set up the state for the next instruction.  */
   *hilo_delay += ninsns;
@@ -18716,6 +18851,15 @@ mips_avoid_hazard (rtx_insn *after, rtx_insn *insn, int *hilo_delay,
     switch (get_attr_hazard (insn))
       {
       case HAZARD_NONE:
+	/* For the P6600, flag some unconditional branches as having a
+	   pseudo-forbidden slot.  This will cause additional nop insertion
+	   or SEQUENCE breaking as required.  This is for performance
+	   reasons not correctness.  */
+	if (TUNE_P6600
+	    && !optimize_size
+	    && TARGET_CB_MAYBE
+	    && mips_classify_branch_p6600 (insn) == UC_OTHER)
+	  *fs_delay = true;
 	break;
 
       case HAZARD_FORBIDDEN_SLOT:
@@ -18799,13 +18943,13 @@ mips_reorg_process_insns (void)
   if (crtl->profile)
     cfun->machine->all_noreorder_p = false;
 
-  /* Code compiled with -mfix-vr4120, -mfix-rm7000 or -mfix-24k can't be
-     all noreorder because we rely on the assembler to work around some
-     errata.  The R5900 too has several bugs.  */
+  /* Code compiled with -mfix-vr4120, -mfix-r5900, -mfix-rm7000 or
+     -mfix-24k can't be all noreorder because we rely on the assembler
+     to work around some errata.  The R5900 target has several bugs.  */
   if (TARGET_FIX_VR4120
       || TARGET_FIX_RM7000
       || TARGET_FIX_24K
-      || TARGET_MIPS5900)
+      || TARGET_FIX_R5900)
     cfun->machine->all_noreorder_p = false;
 
   /* The same is true for -mfix-vr4130 if we might generate MFLO or
@@ -18881,7 +19025,7 @@ mips_reorg_process_insns (void)
 			     &uses);
 		  HARD_REG_SET delay_sets;
 		  CLEAR_HARD_REG_SET (delay_sets);
-		  note_stores (PATTERN (SEQ_END (insn)), record_hard_reg_sets,
+		  note_stores (SEQ_END (insn), record_hard_reg_sets,
 			       &delay_sets);
 
 		  rtx_insn *prev = prev_active_insn (insn);
@@ -18891,8 +19035,7 @@ mips_reorg_process_insns (void)
 		    {
 		      HARD_REG_SET sets;
 		      CLEAR_HARD_REG_SET (sets);
-		      note_stores (PATTERN (prev), record_hard_reg_sets,
-				   &sets);
+		      note_stores (prev, record_hard_reg_sets, &sets);
 
 		      /* Re-order if safe.  */
 		      if (!hard_reg_set_intersect_p (delay_sets, uses)
@@ -18955,9 +19098,19 @@ mips_reorg_process_insns (void)
 		     and the next useful instruction is a SEQUENCE of a jump
 		     and a non-nop instruction in the delay slot, remove the
 		     sequence and replace it with the delay slot instruction
-		     then the jump to clear the forbidden slot hazard.  */
+		     then the jump to clear the forbidden slot hazard.
 
-		  if (fs_delay)
+		     For the P6600, this optimisation solves the performance
+		     penalty associated with BALC followed by a delay slot
+		     branch.  We do not set fs_delay as we do not want
+		     the full logic of a forbidden slot; the penalty exists
+		     only against branches not the full class of forbidden
+		     slot instructions.  */
+
+		  if (fs_delay || (TUNE_P6600
+				   && TARGET_CB_MAYBE
+				   && mips_classify_branch_p6600 (insn)
+				      == UC_BALC))
 		    {
 		      /* Search onwards from the current position looking for
 			 a SEQUENCE.  We are looking for pipeline hazards here
@@ -19284,6 +19437,7 @@ mips_output_mi_thunk (FILE *file, tree thunk_fndecl ATTRIBUTE_UNUSED,
 		      HOST_WIDE_INT delta, HOST_WIDE_INT vcall_offset,
 		      tree function)
 {
+  const char *fnname = IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (thunk_fndecl));
   rtx this_rtx, temp1, temp2, fnaddr;
   rtx_insn *insn;
   bool use_sibcall_p;
@@ -19396,9 +19550,11 @@ mips_output_mi_thunk (FILE *file, tree thunk_fndecl ATTRIBUTE_UNUSED,
   split_all_insns_noflow ();
   mips16_lay_out_constants (true);
   shorten_branches (insn);
+  assemble_start_function (thunk_fndecl, fnname);
   final_start_function (insn, file, 1);
   final (insn, file, 1);
   final_end_function ();
+  assemble_end_function (thunk_fndecl, fnname);
 
   /* Clean up the vars set above.  Note that final_end_function resets
      the global pointer for us.  */
@@ -19425,9 +19581,9 @@ mips_set_compression_mode (unsigned int compression_mode)
   flag_schedule_insns = mips_base_schedule_insns;
   flag_reorder_blocks_and_partition = mips_base_reorder_blocks_and_partition;
   flag_move_loop_invariants = mips_base_move_loop_invariants;
-  align_loops = mips_base_align_loops;
-  align_jumps = mips_base_align_jumps;
-  align_functions = mips_base_align_functions;
+  str_align_loops = mips_base_align_loops;
+  str_align_jumps = mips_base_align_jumps;
+  str_align_functions = mips_base_align_functions;
   target_flags &= ~(MASK_MIPS16 | MASK_MICROMIPS);
   target_flags |= compression_mode;
 
@@ -19478,7 +19634,7 @@ mips_set_compression_mode (unsigned int compression_mode)
 	sorry ("MIPS16 PIC for ABIs other than o32 and o64");
 
       if (TARGET_XGOT)
-	sorry ("MIPS16 -mxgot code");
+	sorry ("MIPS16 %<-mxgot%> code");
 
       if (TARGET_HARD_FLOAT_ABI && !TARGET_OLDABI)
 	sorry ("hard-float MIPS16 code for ABIs other than o32 and o64");
@@ -19497,12 +19653,12 @@ mips_set_compression_mode (unsigned int compression_mode)
       /* Provide default values for align_* for 64-bit targets.  */
       if (TARGET_64BIT)
 	{
-	  if (align_loops == 0)
-	    align_loops = 8;
-	  if (align_jumps == 0)
-	    align_jumps = 8;
-	  if (align_functions == 0)
-	    align_functions = 8;
+	  if (flag_align_loops && !str_align_loops)
+	    str_align_loops = "8";
+	  if (flag_align_jumps && !str_align_jumps)
+	    str_align_jumps = "8";
+	  if (flag_align_functions && !str_align_functions)
+	    str_align_functions = "8";
 	}
 
       targetm.min_anchor_offset = -32768;
@@ -20072,6 +20228,24 @@ mips_option_override (void)
       TARGET_DSPR2 = false;
     }
 
+  /* Make sure that when TARGET_LOONGSON_MMI is true, TARGET_HARD_FLOAT_ABI
+     is true.  In o32 pairs of floating-point registers provide 64-bit
+     values.  */
+  if (TARGET_LOONGSON_MMI &&  !TARGET_HARD_FLOAT_ABI)
+    error ("%<-mloongson-mmi%> must be used with %<-mhard-float%>");
+
+  /* If TARGET_LOONGSON_EXT2, enable TARGET_LOONGSON_EXT.  */
+  if (TARGET_LOONGSON_EXT2)
+    {
+      /* Make sure that when TARGET_LOONGSON_EXT2 is true, TARGET_LOONGSON_EXT
+	 is true.  If a user explicitly says -mloongson-ext2 -mno-loongson-ext
+	 then that is an error.  */
+      if (!TARGET_LOONGSON_EXT
+	  && (target_flags_explicit & MASK_LOONGSON_EXT) != 0)
+	error ("%<-mloongson-ext2%> must be used with %<-mloongson-ext%>");
+      target_flags |= MASK_LOONGSON_EXT;
+    }
+
   /* .eh_frame addresses should be the same width as a C pointer.
      Most MIPS ABIs support only one pointer size, so the assembler
      will usually know exactly how big an .eh_frame address is.
@@ -20152,6 +20326,12 @@ mips_option_override (void)
       && strcmp (mips_arch_info->name, "r4400") == 0)
     target_flags |= MASK_FIX_R4400;
 
+  /* Default to working around R5900 errata only if the processor
+     was selected explicitly.  */
+  if ((target_flags_explicit & MASK_FIX_R5900) == 0
+      && strcmp (mips_arch_info->name, "r5900") == 0)
+    target_flags |= MASK_FIX_R5900;
+
   /* Default to working around R10000 errata only if the processor
      was selected explicitly.  */
   if ((target_flags_explicit & MASK_FIX_R10000) == 0
@@ -20186,9 +20366,9 @@ mips_option_override (void)
   mips_base_schedule_insns = flag_schedule_insns;
   mips_base_reorder_blocks_and_partition = flag_reorder_blocks_and_partition;
   mips_base_move_loop_invariants = flag_move_loop_invariants;
-  mips_base_align_loops = align_loops;
-  mips_base_align_jumps = align_jumps;
-  mips_base_align_functions = align_functions;
+  mips_base_align_loops = str_align_loops;
+  mips_base_align_jumps = str_align_jumps;
+  mips_base_align_functions = str_align_functions;
 
   /* Now select the ISA mode.
 
@@ -20231,7 +20411,6 @@ mips_swap_registers (unsigned int i)
 
   SWAP_INT (fixed_regs[i], fixed_regs[i + 1]);
   SWAP_INT (call_used_regs[i], call_used_regs[i + 1]);
-  SWAP_INT (call_really_used_regs[i], call_really_used_regs[i + 1]);
   SWAP_STRING (reg_names[i], reg_names[i + 1]);
 
 #undef SWAP_STRING
@@ -20251,30 +20430,23 @@ mips_conditional_register_usage (void)
       global_regs[CCDSP_SC_REGNUM] = 1;
     }
   else
-    AND_COMPL_HARD_REG_SET (accessible_reg_set,
-			    reg_class_contents[(int) DSP_ACC_REGS]);
+    accessible_reg_set &= ~reg_class_contents[DSP_ACC_REGS];
 
   if (!ISA_HAS_HILO)
-    AND_COMPL_HARD_REG_SET (accessible_reg_set,
-			    reg_class_contents[(int) MD_REGS]);
+    accessible_reg_set &= ~reg_class_contents[MD_REGS];
 
   if (!TARGET_HARD_FLOAT)
-    {
-      AND_COMPL_HARD_REG_SET (accessible_reg_set,
-			      reg_class_contents[(int) FP_REGS]);
-      AND_COMPL_HARD_REG_SET (accessible_reg_set,
-			      reg_class_contents[(int) ST_REGS]);
-    }
+    accessible_reg_set &= ~(reg_class_contents[FP_REGS]
+			    | reg_class_contents[ST_REGS]);
   else if (!ISA_HAS_8CC)
     {
       /* We only have a single condition-code register.  We implement
 	 this by fixing all the condition-code registers and generating
 	 RTL that refers directly to ST_REG_FIRST.  */
-      AND_COMPL_HARD_REG_SET (accessible_reg_set,
-			      reg_class_contents[(int) ST_REGS]);
+      accessible_reg_set &= ~reg_class_contents[ST_REGS];
       if (!ISA_HAS_CCF)
 	SET_HARD_REG_BIT (accessible_reg_set, FPSW_REGNUM);
-      fixed_regs[FPSW_REGNUM] = call_used_regs[FPSW_REGNUM] = 1;
+      fixed_regs[FPSW_REGNUM] = 1;
     }
   if (TARGET_MIPS16)
     {
@@ -20289,39 +20461,38 @@ mips_conditional_register_usage (void)
 	 and $25 (t9) because it is used as the function call address in
 	 SVR4 PIC code.  */
 
-      fixed_regs[18] = call_used_regs[18] = 1;
-      fixed_regs[19] = call_used_regs[19] = 1;
-      fixed_regs[20] = call_used_regs[20] = 1;
-      fixed_regs[21] = call_used_regs[21] = 1;
-      fixed_regs[22] = call_used_regs[22] = 1;
-      fixed_regs[23] = call_used_regs[23] = 1;
-      fixed_regs[26] = call_used_regs[26] = 1;
-      fixed_regs[27] = call_used_regs[27] = 1;
-      fixed_regs[30] = call_used_regs[30] = 1;
+      fixed_regs[18] = 1;
+      fixed_regs[19] = 1;
+      fixed_regs[20] = 1;
+      fixed_regs[21] = 1;
+      fixed_regs[22] = 1;
+      fixed_regs[23] = 1;
+      fixed_regs[26] = 1;
+      fixed_regs[27] = 1;
+      fixed_regs[30] = 1;
       if (optimize_size)
 	{
-	  fixed_regs[8] = call_used_regs[8] = 1;
-	  fixed_regs[9] = call_used_regs[9] = 1;
-	  fixed_regs[10] = call_used_regs[10] = 1;
-	  fixed_regs[11] = call_used_regs[11] = 1;
-	  fixed_regs[12] = call_used_regs[12] = 1;
-	  fixed_regs[13] = call_used_regs[13] = 1;
-	  fixed_regs[14] = call_used_regs[14] = 1;
-	  fixed_regs[15] = call_used_regs[15] = 1;
+	  fixed_regs[8] = 1;
+	  fixed_regs[9] = 1;
+	  fixed_regs[10] = 1;
+	  fixed_regs[11] = 1;
+	  fixed_regs[12] = 1;
+	  fixed_regs[13] = 1;
+	  fixed_regs[14] = 1;
+	  fixed_regs[15] = 1;
 	}
 
       /* Do not allow HI and LO to be treated as register operands.
 	 There are no MTHI or MTLO instructions (or any real need
 	 for them) and one-way registers cannot easily be reloaded.  */
-      AND_COMPL_HARD_REG_SET (operand_reg_set,
-			      reg_class_contents[(int) MD_REGS]);
+      operand_reg_set &= ~reg_class_contents[MD_REGS];
     }
   /* $f20-$f23 are call-clobbered for n64.  */
   if (mips_abi == ABI_64)
     {
       int regno;
       for (regno = FP_REG_FIRST + 20; regno < FP_REG_FIRST + 24; regno++)
-	call_really_used_regs[regno] = call_used_regs[regno] = 1;
+	call_used_regs[regno] = 1;
     }
   /* Odd registers in the range $f21-$f31 (inclusive) are call-clobbered
      for n32 and o32 FP64.  */
@@ -20331,7 +20502,7 @@ mips_conditional_register_usage (void)
     {
       int regno;
       for (regno = FP_REG_FIRST + 21; regno <= FP_REG_FIRST + 31; regno+=2)
-	call_really_used_regs[regno] = call_used_regs[regno] = 1;
+	call_used_regs[regno] = 1;
     }
   /* Make sure that double-register accumulator values are correctly
      ordered for the current endianness.  */
@@ -20449,9 +20620,19 @@ mips_final_postscan_insn (FILE *file ATTRIBUTE_UNUSED, rtx_insn *insn,
   if (INSN_P (insn)
       && GET_CODE (PATTERN (insn)) == UNSPEC_VOLATILE
       && XINT (PATTERN (insn), 1) == UNSPEC_CONSTTABLE_END)
-    mips_set_text_contents_type (asm_out_file, "__pend_",
-				 INTVAL (XVECEXP (PATTERN (insn), 0, 0)),
-				 TRUE);
+    {
+      rtx_insn *next_insn = next_real_nondebug_insn (insn);
+      bool code_p = (next_insn != NULL
+		     && INSN_P (next_insn)
+		     && (GET_CODE (PATTERN (next_insn)) != UNSPEC_VOLATILE
+			 || XINT (PATTERN (next_insn), 1) != UNSPEC_CONSTTABLE));
+
+      /* Switch content type depending on whether there is code beyond
+	 the constant pool.  */
+      mips_set_text_contents_type (asm_out_file, "__pend_",
+				   INTVAL (XVECEXP (PATTERN (insn), 0, 0)),
+				   code_p);
+    }
 }
 
 /* Return the function that is used to expand the <u>mulsidi3 pattern.
@@ -21057,12 +21238,12 @@ void mips_function_profiler (FILE *file)
 
 /* Implement TARGET_SHIFT_TRUNCATION_MASK.  We want to keep the default
    behavior of TARGET_SHIFT_TRUNCATION_MASK for non-vector modes even
-   when TARGET_LOONGSON_VECTORS is true.  */
+   when TARGET_LOONGSON_MMI is true.  */
 
 static unsigned HOST_WIDE_INT
 mips_shift_truncation_mask (machine_mode mode)
 {
-  if (TARGET_LOONGSON_VECTORS && VECTOR_MODE_P (mode))
+  if (TARGET_LOONGSON_MMI && VECTOR_MODE_P (mode))
     return 0;
 
   return GET_MODE_BITSIZE (mode) - 1;
@@ -21163,7 +21344,7 @@ mips_expand_vpc_loongson_even_odd (struct expand_vec_perm_d *d)
   unsigned i, odd, nelt = d->nelt;
   rtx t0, t1, t2, t3;
 
-  if (!(TARGET_HARD_FLOAT && TARGET_LOONGSON_VECTORS))
+  if (!(TARGET_HARD_FLOAT && TARGET_LOONGSON_MMI))
     return false;
   /* Even-odd for V2SI/V2SFmode is matched by interleave directly.  */
   if (nelt < 4)
@@ -21220,7 +21401,7 @@ mips_expand_vpc_loongson_pshufh (struct expand_vec_perm_d *d)
   unsigned i, mask;
   rtx rmask;
 
-  if (!(TARGET_HARD_FLOAT && TARGET_LOONGSON_VECTORS))
+  if (!(TARGET_HARD_FLOAT && TARGET_LOONGSON_MMI))
     return false;
   if (d->vmode != V4HImode)
     return false;
@@ -21272,7 +21453,7 @@ mips_expand_vpc_loongson_bcast (struct expand_vec_perm_d *d)
   unsigned i, elt;
   rtx t0, t1;
 
-  if (!(TARGET_HARD_FLOAT && TARGET_LOONGSON_VECTORS))
+  if (!(TARGET_HARD_FLOAT && TARGET_LOONGSON_MMI))
     return false;
   /* Note that we've already matched V2SI via punpck and V4HI via pshufh.  */
   if (d->vmode != V8QImode)
@@ -21866,7 +22047,7 @@ mips_expand_vector_init (rtx target, rtx vals)
     }
 
   /* Loongson is the only cpu with vectors with more elements.  */
-  gcc_assert (TARGET_HARD_FLOAT && TARGET_LOONGSON_VECTORS);
+  gcc_assert (TARGET_HARD_FLOAT && TARGET_LOONGSON_MMI);
 
   /* If all values are identical, broadcast the value.  */
   if (all_same)
@@ -22121,7 +22302,7 @@ mips_expand_vec_cond_expr (machine_mode mode, machine_mode vimode,
 	  if (mode != vimode)
 	    {
 	      xop1 = gen_reg_rtx (vimode);
-	      emit_move_insn (xop1, gen_rtx_SUBREG (vimode, operands[1], 0));
+	      emit_move_insn (xop1, gen_lowpart (vimode, operands[1]));
 	    }
 	  emit_move_insn (src1, xop1);
 	}
@@ -22138,7 +22319,7 @@ mips_expand_vec_cond_expr (machine_mode mode, machine_mode vimode,
 	  if (mode != vimode)
 	    {
 	      xop2 = gen_reg_rtx (vimode);
-	      emit_move_insn (xop2, gen_rtx_SUBREG (vimode, operands[2], 0));
+	      emit_move_insn (xop2, gen_lowpart (vimode, operands[2]));
 	    }
 	  emit_move_insn (src2, xop2);
 	}
@@ -22305,6 +22486,14 @@ mips_constant_alignment (const_tree exp, HOST_WIDE_INT align)
   if (TREE_CODE (exp) == STRING_CST || TREE_CODE (exp) == CONSTRUCTOR)
     return MAX (align, BITS_PER_WORD);
   return align;
+}
+
+/* Implement the TARGET_ASAN_SHADOW_OFFSET hook.  */
+
+static unsigned HOST_WIDE_INT
+mips_asan_shadow_offset (void)
+{
+  return 0x0aaa0000;
 }
 
 /* Implement TARGET_STARTING_FRAME_OFFSET.  See mips_compute_frame_info
@@ -22617,6 +22806,9 @@ mips_starting_frame_offset (void)
 
 #undef TARGET_CONSTANT_ALIGNMENT
 #define TARGET_CONSTANT_ALIGNMENT mips_constant_alignment
+
+#undef TARGET_ASAN_SHADOW_OFFSET
+#define TARGET_ASAN_SHADOW_OFFSET mips_asan_shadow_offset
 
 #undef TARGET_STARTING_FRAME_OFFSET
 #define TARGET_STARTING_FRAME_OFFSET mips_starting_frame_offset
