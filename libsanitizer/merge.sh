@@ -4,6 +4,8 @@
 
 # This script merges libsanitizer sources from upstream.
 
+VCS=${1:-svn}
+
 get_upstream() {
   rm -rf upstream
   #cp -rf orig upstream
@@ -16,7 +18,7 @@ get_current_rev() {
 }
 
 list_files() {
-  (cd $1; ls *.{cc,h,inc,S} 2> /dev/null)
+  (cd $1; ls *.{cc,cpp,h,inc,S} 2> /dev/null)
 
 }
 
@@ -46,10 +48,10 @@ merge() {
     elif [ -f $upstream_path/$f ]; then
       echo "FOUND IN UPSTREAM :" $f
       cp -v $upstream_path/$f $local_path
-      svn add $local_path/$f
+      $VCS add $local_path/$f
     elif [ -f $local_path/$f ]; then
       echo "FOUND IN LOCAL    :" $f
-      svn remove $local_path/$f
+      $VCS rm $local_path/$f
     fi
   done
 
@@ -72,6 +74,7 @@ merge lib/tsan/rtl tsan
 merge lib/sanitizer_common sanitizer_common
 merge lib/interception interception
 merge lib/ubsan ubsan
+merge lib/BlocksRuntime/ BlocksRuntime
 
 # Need to merge lib/builtins/assembly.h file:
 mkdir -p builtins

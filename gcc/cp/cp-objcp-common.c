@@ -1,5 +1,5 @@
 /* Some code common to C++ and ObjC++ front ends.
-   Copyright (C) 2004-2018 Free Software Foundation, Inc.
+   Copyright (C) 2004-2019 Free Software Foundation, Inc.
    Contributed by Ziemowit Laski  <zlaski@apple.com>
 
 This file is part of GCC.
@@ -37,7 +37,7 @@ cxx_get_alias_set (tree t)
 
   /* Punt on PMFs until we canonicalize functions properly.  */
   if (TYPE_PTRMEMFUNC_P (t)
-      || (POINTER_TYPE_P (t)
+      || (INDIRECT_TYPE_P (t)
 	  && TYPE_PTRMEMFUNC_P (TREE_TYPE (t))))
     return 0;
 
@@ -67,7 +67,7 @@ cp_tree_size (enum tree_code code)
     case PTRMEM_CST:		return sizeof (ptrmem_cst);
     case BASELINK:		return sizeof (tree_baselink);
     case TEMPLATE_PARM_INDEX:	return sizeof (template_parm_index);
-    case DEFAULT_ARG:		return sizeof (tree_default_arg);
+    case DEFERRED_PARSE:	return sizeof (tree_deferred_parse);
     case DEFERRED_NOEXCEPT:	return sizeof (tree_deferred_noexcept);
     case OVERLOAD:		return sizeof (tree_overload);
     case STATIC_ASSERT:         return sizeof (tree_static_assert);
@@ -248,16 +248,14 @@ cp_type_dwarf_attribute (const_tree type, int attr)
   switch (attr)
     {
     case DW_AT_reference:
-      if ((TREE_CODE (type) == FUNCTION_TYPE
-	   || TREE_CODE (type) == METHOD_TYPE)
+      if (FUNC_OR_METHOD_TYPE_P (type)
 	  && FUNCTION_REF_QUALIFIED (type)
 	  && !FUNCTION_RVALUE_QUALIFIED (type))
 	return 1;
       break;
 
     case DW_AT_rvalue_reference:
-      if ((TREE_CODE (type) == FUNCTION_TYPE
-	   || TREE_CODE (type) == METHOD_TYPE)
+      if (FUNC_OR_METHOD_TYPE_P (type)
 	  && FUNCTION_REF_QUALIFIED (type)
 	  && FUNCTION_RVALUE_QUALIFIED (type))
 	return 1;
@@ -296,43 +294,6 @@ bool
 has_c_linkage (const_tree decl)
 {
   return DECL_EXTERN_C_P (decl);
-}
-
-static GTY ((cache))
-     hash_table<tree_decl_map_cache_hasher> *shadowed_var_for_decl;
-
-/* Lookup a shadowed var for FROM, and return it if we find one.  */
-
-tree
-decl_shadowed_for_var_lookup (tree from)
-{
-  struct tree_decl_map *h, in;
-  in.base.from = from;
-
-  h = shadowed_var_for_decl->find_with_hash (&in, DECL_UID (from));
-  if (h)
-    return h->to;
-  return NULL_TREE;
-}
-
-/* Insert a mapping FROM->TO in the shadowed var hashtable.  */
-
-void
-decl_shadowed_for_var_insert (tree from, tree to)
-{
-  struct tree_decl_map *h;
-
-  h = ggc_alloc<tree_decl_map> ();
-  h->base.from = from;
-  h->to = to;
-  *shadowed_var_for_decl->find_slot_with_hash (h, DECL_UID (from), INSERT) = h;
-}
-
-void
-init_shadowed_var_for_decl (void)
-{
-  shadowed_var_for_decl
-    = hash_table<tree_decl_map_cache_hasher>::create_ggc (512);
 }
 
 /* Return true if stmt can fall through.  Used by block_may_fallthru
@@ -404,85 +365,115 @@ cp_register_dumps (gcc::dump_manager *dumps)
 void
 cp_common_init_ts (void)
 {
-  MARK_TS_DECL_NON_COMMON (USING_DECL);
+  /* With type.  */
+  MARK_TS_TYPED (PTRMEM_CST);
+  MARK_TS_TYPED (LAMBDA_EXPR);
+  MARK_TS_TYPED (TYPE_ARGUMENT_PACK);
+
+  /* Random new trees.  */
+  MARK_TS_COMMON (BASELINK);
+  MARK_TS_COMMON (DECLTYPE_TYPE);
+  MARK_TS_COMMON (OVERLOAD);
+  MARK_TS_COMMON (TEMPLATE_PARM_INDEX);
+  MARK_TS_COMMON (TYPENAME_TYPE);
+  MARK_TS_COMMON (TYPEOF_TYPE);
+  MARK_TS_COMMON (UNBOUND_CLASS_TEMPLATE);
+  MARK_TS_COMMON (UNDERLYING_TYPE);
+
+  /* New decls.  */
   MARK_TS_DECL_COMMON (TEMPLATE_DECL);
   MARK_TS_DECL_COMMON (WILDCARD_DECL);
 
-  MARK_TS_COMMON (TEMPLATE_TEMPLATE_PARM);
-  MARK_TS_COMMON (TEMPLATE_TYPE_PARM);
-  MARK_TS_COMMON (TEMPLATE_PARM_INDEX);
-  MARK_TS_COMMON (OVERLOAD);
-  MARK_TS_COMMON (TEMPLATE_INFO);
-  MARK_TS_COMMON (TYPENAME_TYPE);
-  MARK_TS_COMMON (TYPEOF_TYPE);
-  MARK_TS_COMMON (UNDERLYING_TYPE);
-  MARK_TS_COMMON (BASELINK);
-  MARK_TS_COMMON (TYPE_PACK_EXPANSION);
-  MARK_TS_COMMON (TYPE_ARGUMENT_PACK);
-  MARK_TS_COMMON (DECLTYPE_TYPE);
-  MARK_TS_COMMON (BOUND_TEMPLATE_TEMPLATE_PARM);
-  MARK_TS_COMMON (UNBOUND_CLASS_TEMPLATE);
+  MARK_TS_DECL_NON_COMMON (USING_DECL);
 
-  MARK_TS_TYPED (EXPR_PACK_EXPANSION);
-  MARK_TS_TYPED (SWITCH_STMT);
-  MARK_TS_TYPED (IF_STMT);
-  MARK_TS_TYPED (FOR_STMT);
-  MARK_TS_TYPED (RANGE_FOR_STMT);
-  MARK_TS_TYPED (AGGR_INIT_EXPR);
-  MARK_TS_TYPED (EXPR_STMT);
-  MARK_TS_TYPED (EH_SPEC_BLOCK);
-  MARK_TS_TYPED (CLEANUP_STMT);
-  MARK_TS_TYPED (SCOPE_REF);
-  MARK_TS_TYPED (CAST_EXPR);
-  MARK_TS_TYPED (NON_DEPENDENT_EXPR);
-  MARK_TS_TYPED (MODOP_EXPR);
-  MARK_TS_TYPED (TRY_BLOCK);
-  MARK_TS_TYPED (THROW_EXPR);
-  MARK_TS_TYPED (HANDLER);
-  MARK_TS_TYPED (REINTERPRET_CAST_EXPR);
-  MARK_TS_TYPED (CONST_CAST_EXPR);
-  MARK_TS_TYPED (STATIC_CAST_EXPR);
-  MARK_TS_TYPED (DYNAMIC_CAST_EXPR);
-  MARK_TS_TYPED (IMPLICIT_CONV_EXPR);
-  MARK_TS_TYPED (TEMPLATE_ID_EXPR);
-  MARK_TS_TYPED (ARROW_EXPR);
-  MARK_TS_TYPED (SIZEOF_EXPR);
-  MARK_TS_TYPED (ALIGNOF_EXPR);
-  MARK_TS_TYPED (AT_ENCODE_EXPR);
-  MARK_TS_TYPED (UNARY_PLUS_EXPR);
-  MARK_TS_TYPED (TRAIT_EXPR);
-  MARK_TS_TYPED (TYPE_ARGUMENT_PACK);
-  MARK_TS_TYPED (NOEXCEPT_EXPR);
-  MARK_TS_TYPED (NONTYPE_ARGUMENT_PACK);
-  MARK_TS_TYPED (WHILE_STMT);
-  MARK_TS_TYPED (NEW_EXPR);
-  MARK_TS_TYPED (VEC_NEW_EXPR);
-  MARK_TS_TYPED (BREAK_STMT);
-  MARK_TS_TYPED (MEMBER_REF);
-  MARK_TS_TYPED (DOTSTAR_EXPR);
-  MARK_TS_TYPED (DO_STMT);
-  MARK_TS_TYPED (DELETE_EXPR);
-  MARK_TS_TYPED (VEC_DELETE_EXPR);
-  MARK_TS_TYPED (CONTINUE_STMT);
-  MARK_TS_TYPED (TAG_DEFN);
-  MARK_TS_TYPED (PSEUDO_DTOR_EXPR);
-  MARK_TS_TYPED (TYPEID_EXPR);
-  MARK_TS_TYPED (MUST_NOT_THROW_EXPR);
-  MARK_TS_TYPED (STMT_EXPR);
-  MARK_TS_TYPED (OFFSET_REF);
-  MARK_TS_TYPED (OFFSETOF_EXPR);
-  MARK_TS_TYPED (ADDRESSOF_EXPR);
-  MARK_TS_TYPED (PTRMEM_CST);
-  MARK_TS_TYPED (EMPTY_CLASS_EXPR);
-  MARK_TS_TYPED (VEC_INIT_EXPR);
-  MARK_TS_TYPED (USING_STMT);
-  MARK_TS_TYPED (LAMBDA_EXPR);
-  MARK_TS_TYPED (CTOR_INITIALIZER);
-  MARK_TS_TYPED (REQUIRES_EXPR);
-  MARK_TS_TYPED (UNARY_LEFT_FOLD_EXPR);
-  MARK_TS_TYPED (UNARY_RIGHT_FOLD_EXPR);
-  MARK_TS_TYPED (BINARY_LEFT_FOLD_EXPR);
-  MARK_TS_TYPED (BINARY_RIGHT_FOLD_EXPR);
+  /* New Types.  */
+  MARK_TS_TYPE_NON_COMMON (BOUND_TEMPLATE_TEMPLATE_PARM);
+  MARK_TS_TYPE_NON_COMMON (TEMPLATE_TEMPLATE_PARM);
+  MARK_TS_TYPE_NON_COMMON (TEMPLATE_TYPE_PARM);
+  MARK_TS_TYPE_NON_COMMON (TYPE_ARGUMENT_PACK);
+  MARK_TS_TYPE_NON_COMMON (TYPE_PACK_EXPANSION);
+
+  /* Statements.  */
+  MARK_TS_EXP (BREAK_STMT);
+  MARK_TS_EXP (CLEANUP_STMT);
+  MARK_TS_EXP (CONTINUE_STMT);
+  MARK_TS_EXP (DO_STMT);
+  MARK_TS_EXP (EH_SPEC_BLOCK);
+  MARK_TS_EXP (FOR_STMT);
+  MARK_TS_EXP (HANDLER);
+  MARK_TS_EXP (IF_STMT);
+  MARK_TS_EXP (OMP_DEPOBJ);
+  MARK_TS_EXP (RANGE_FOR_STMT);
+  MARK_TS_EXP (SWITCH_STMT);
+  MARK_TS_EXP (TRY_BLOCK);
+  MARK_TS_EXP (USING_STMT);
+  MARK_TS_EXP (WHILE_STMT);
+
+  /* Random expressions.  */
+  MARK_TS_EXP (ADDRESSOF_EXPR);
+  MARK_TS_EXP (AGGR_INIT_EXPR);
+  MARK_TS_EXP (ALIGNOF_EXPR);
+  MARK_TS_EXP (ARROW_EXPR);
+  MARK_TS_EXP (AT_ENCODE_EXPR);
+  MARK_TS_EXP (CAST_EXPR);
+  MARK_TS_EXP (CONST_CAST_EXPR);
+  MARK_TS_EXP (CTOR_INITIALIZER);
+  MARK_TS_EXP (DELETE_EXPR);
+  MARK_TS_EXP (DOTSTAR_EXPR);
+  MARK_TS_EXP (DYNAMIC_CAST_EXPR);
+  MARK_TS_EXP (EMPTY_CLASS_EXPR);
+  MARK_TS_EXP (EXPR_STMT);
+  MARK_TS_EXP (IMPLICIT_CONV_EXPR);
+  MARK_TS_EXP (MEMBER_REF);
+  MARK_TS_EXP (MODOP_EXPR);
+  MARK_TS_EXP (MUST_NOT_THROW_EXPR);
+  MARK_TS_EXP (NEW_EXPR);
+  MARK_TS_EXP (NOEXCEPT_EXPR);
+  MARK_TS_EXP (NON_DEPENDENT_EXPR);
+  MARK_TS_EXP (OFFSETOF_EXPR);
+  MARK_TS_EXP (OFFSET_REF);
+  MARK_TS_EXP (PSEUDO_DTOR_EXPR);
+  MARK_TS_EXP (REINTERPRET_CAST_EXPR);
+  MARK_TS_EXP (SCOPE_REF);
+  MARK_TS_EXP (STATIC_CAST_EXPR);
+  MARK_TS_EXP (STMT_EXPR);
+  MARK_TS_EXP (TAG_DEFN);
+  MARK_TS_EXP (TEMPLATE_ID_EXPR);
+  MARK_TS_EXP (THROW_EXPR);
+  MARK_TS_EXP (TRAIT_EXPR);
+  MARK_TS_EXP (TYPEID_EXPR);
+  MARK_TS_EXP (TYPE_EXPR);
+  MARK_TS_EXP (UNARY_PLUS_EXPR);
+  MARK_TS_EXP (VEC_DELETE_EXPR);
+  MARK_TS_EXP (VEC_INIT_EXPR);
+  MARK_TS_EXP (VEC_NEW_EXPR);
+
+  /* Fold expressions.  */
+  MARK_TS_EXP (BINARY_LEFT_FOLD_EXPR);
+  MARK_TS_EXP (BINARY_RIGHT_FOLD_EXPR);
+  MARK_TS_EXP (EXPR_PACK_EXPANSION);
+  MARK_TS_EXP (NONTYPE_ARGUMENT_PACK);
+  MARK_TS_EXP (UNARY_LEFT_FOLD_EXPR);
+  MARK_TS_EXP (UNARY_RIGHT_FOLD_EXPR);
+
+  /* Constraints.  */
+  MARK_TS_EXP (CHECK_CONSTR);
+  MARK_TS_EXP (COMPOUND_REQ);
+  MARK_TS_EXP (CONJ_CONSTR);
+  MARK_TS_EXP (DEDUCT_CONSTR);
+  MARK_TS_EXP (DISJ_CONSTR);
+  MARK_TS_EXP (EXCEPT_CONSTR);
+  MARK_TS_EXP (EXPR_CONSTR);
+  MARK_TS_EXP (ICONV_CONSTR);
+  MARK_TS_EXP (NESTED_REQ);
+  MARK_TS_EXP (PARM_CONSTR);
+  MARK_TS_EXP (PRED_CONSTR);
+  MARK_TS_EXP (REQUIRES_EXPR);
+  MARK_TS_EXP (SIMPLE_REQ);
+  MARK_TS_EXP (TYPE_CONSTR);
+  MARK_TS_EXP (TYPE_REQ);
+
+  c_common_init_ts ();
 }
 
 #include "gt-cp-cp-objcp-common.h"

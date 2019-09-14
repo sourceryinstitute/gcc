@@ -21,7 +21,6 @@ name`'rtype_qual`_'atype_code (rtype * const restrict retarray,
   index_type rank;
   index_type n;
 
-  assert(back == 0);
   rank = GFC_DESCRIPTOR_RANK (array);
   if (rank <= 0)
     runtime_error ("Rank of array needs to be > 0");
@@ -29,7 +28,7 @@ name`'rtype_qual`_'atype_code (rtype * const restrict retarray,
   if (retarray->base_addr == NULL)
     {
       GFC_DIMENSION_SET(retarray->dim[0], 0, rank-1, 1);
-      GFC_DTYPE_COPY_SETRANK(retarray,retarray,1);
+      retarray->dtype.rank = 1;
       retarray->offset = 0;
       retarray->base_addr = xmallocarray (rank, sizeof (rtype_name));
     }
@@ -66,8 +65,6 @@ name`'rtype_qual`_'atype_code (rtype * const restrict retarray,
 define(START_FOREACH_BLOCK,
 `  while (base)
     {
-      do
-	{
 	  /* Implementation start.  */
 ')dnl
 define(FINISH_FOREACH_FUNCTION,
@@ -126,7 +123,13 @@ void
   index_type n;
   int mask_kind;
 
-  assert(back == 0);
+
+  if (mask == NULL)
+    {
+      name`'rtype_qual`_'atype_code (retarray, array, back);
+      return;
+    }
+
   rank = GFC_DESCRIPTOR_RANK (array);
   if (rank <= 0)
     runtime_error ("Rank of array needs to be > 0");
@@ -134,7 +137,7 @@ void
   if (retarray->base_addr == NULL)
     {
       GFC_DIMENSION_SET(retarray->dim[0], 0, rank - 1, 1);
-      GFC_DTYPE_COPY_SETRANK(retarray,retarray,1);
+      retarray->dtype.rank = 1;
       retarray->offset = 0;
       retarray->base_addr = xmallocarray (rank, sizeof (rtype_name));
     }
@@ -251,7 +254,7 @@ void
   index_type n;
   rtype_name *dest;
 
-  if (*mask)
+  if (mask == NULL || *mask)
     {
       name`'rtype_qual`_'atype_code (retarray, array, back);
       return;
@@ -265,7 +268,7 @@ void
   if (retarray->base_addr == NULL)
     {
       GFC_DIMENSION_SET(retarray->dim[0], 0, rank-1, 1);
-      GFC_DTYPE_COPY_SETRANK(retarray,retarray,1);
+      retarray->dtype.rank = 1;
       retarray->offset = 0;
       retarray->base_addr = xmallocarray (rank, sizeof (rtype_name));
     }

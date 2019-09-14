@@ -1,5 +1,5 @@
 /* If-conversion support.
-   Copyright (C) 2000-2018 Free Software Foundation, Inc.
+   Copyright (C) 2000-2019 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -503,7 +503,7 @@ cond_exec_process_if_block (ce_if_block * ce_info,
     return FALSE;
 
   /* If the conditional jump is more than just a conditional jump,
-     then we can not do conditional execution conversion on this block.  */
+     then we cannot do conditional execution conversion on this block.  */
   if (! onlyjump_p (BB_END (test_bb)))
     return FALSE;
 
@@ -652,7 +652,7 @@ cond_exec_process_if_block (ce_if_block * ce_info,
 	    goto fail;
 
 	  /* If the conditional jump is more than just a conditional jump, then
-	     we can not do conditional execution conversion on this block.  */
+	     we cannot do conditional execution conversion on this block.  */
 	  if (! onlyjump_p (BB_END (bb)))
 	    goto fail;
 
@@ -4022,7 +4022,7 @@ noce_find_if_block (basic_block test_bb, edge then_edge, edge else_edge,
     }
 
   /* If the conditional jump is more than just a conditional
-     jump, then we can not do if-conversion on this block.  */
+     jump, then we cannot do if-conversion on this block.  */
   jump = BB_END (test_bb);
   if (! onlyjump_p (jump))
     return FALSE;
@@ -4642,7 +4642,7 @@ find_cond_trap (basic_block test_bb, edge then_edge, edge else_edge)
     return FALSE;
 
   /* If the conditional jump is more than just a conditional jump, then
-     we can not do if-conversion on this block.  Give up for returnjump_p,
+     we cannot do if-conversion on this block.  Give up for returnjump_p,
      changing a conditional return followed by unconditional trap for
      conditional trap followed by unconditional return is likely not
      beneficial and harder to handle.  */
@@ -5457,6 +5457,8 @@ if_convert (bool after_combine)
 static unsigned int
 rest_of_handle_if_conversion (void)
 {
+  int flags = 0;
+
   if (flag_if_conversion)
     {
       if (dump_file)
@@ -5466,9 +5468,12 @@ rest_of_handle_if_conversion (void)
 	}
       cleanup_cfg (CLEANUP_EXPENSIVE);
       if_convert (false);
+      if (num_updated_if_blocks)
+	/* Get rid of any dead CC-related instructions.  */
+	flags |= CLEANUP_FORCE_FAST_DCE;
     }
 
-  cleanup_cfg (0);
+  cleanup_cfg (flags);
   return 0;
 }
 

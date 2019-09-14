@@ -1,5 +1,5 @@
 /* Get CPU type and Features for x86 processors.
-   Copyright (C) 2012-2018 Free Software Foundation, Inc.
+   Copyright (C) 2012-2019 Free Software Foundation, Inc.
    Contributed by Sriraman Tallam (tmsriram@google.com)
 
 This file is part of GCC.
@@ -83,17 +83,20 @@ get_amd_cpu (unsigned int family, unsigned int model)
     /* AMD Family 15h "Bulldozer".  */
     case 0x15:
       __cpu_model.__cpu_type = AMDFAM15H;
+
+      if (model == 0x2)
+	__cpu_model.__cpu_subtype = AMDFAM15H_BDVER2;      
       /* Bulldozer version 1.  */
-      if ( model <= 0xf)
+      else if (model <= 0xf)
 	__cpu_model.__cpu_subtype = AMDFAM15H_BDVER1;
       /* Bulldozer version 2 "Piledriver" */
-      if (model >= 0x10 && model <= 0x2f)
+      else if (model <= 0x2f)
 	__cpu_model.__cpu_subtype = AMDFAM15H_BDVER2;      
       /* Bulldozer version 3 "Steamroller"  */
-      if (model >= 0x30 && model <= 0x4f)
+      else if (model <= 0x4f)
 	__cpu_model.__cpu_subtype = AMDFAM15H_BDVER3;
       /* Bulldozer version 4 "Excavator"   */
-      if (model >= 0x60 && model <= 0x7f)
+      else if (model <= 0x7f)
 	__cpu_model.__cpu_subtype = AMDFAM15H_BDVER4;
       break;
     /* AMD Family 16h "btver2" */
@@ -105,6 +108,8 @@ get_amd_cpu (unsigned int family, unsigned int model)
       /* AMD family 17h version 1.  */
       if (model <= 0x1f)
 	__cpu_model.__cpu_subtype = AMDFAM17H_ZNVER1;
+      if (model >= 0x30)
+	 __cpu_model.__cpu_subtype = AMDFAM17H_ZNVER2;
       break;
     default:
       break;
@@ -139,6 +144,15 @@ get_intel_cpu (unsigned int family, unsigned int model, unsigned int brand_id)
 	    case 0x5d:
 	      /* Silvermont.  */
 	      __cpu_model.__cpu_type = INTEL_SILVERMONT;
+	      break;
+	    case 0x5c:
+	    case 0x5f:
+	      /* Goldmont.  */
+	      __cpu_model.__cpu_type = INTEL_GOLDMONT;
+	      break;
+	    case 0x7a:
+	      /* Goldmont Plus.  */
+	      __cpu_model.__cpu_type = INTEL_GOLDMONT_PLUS;
 	      break;
 	    case 0x57:
 	      /* Knights Landing.  */
@@ -201,9 +215,17 @@ get_intel_cpu (unsigned int family, unsigned int model, unsigned int brand_id)
 	      __cpu_model.__cpu_subtype = INTEL_COREI7_SKYLAKE;
 	      break;
 	    case 0x55:
-	      /* Skylake with AVX-512 support.  */
-	      __cpu_model.__cpu_type = INTEL_COREI7;
-	      __cpu_model.__cpu_subtype = INTEL_COREI7_SKYLAKE_AVX512;
+	      {
+	        unsigned int eax, ebx, ecx, edx;
+	        __cpu_model.__cpu_type = INTEL_COREI7;
+	        __cpuid_count (7, 0, eax, ebx, ecx, edx);
+	        if (ecx & bit_AVX512VNNI)
+	          /* Cascade Lake.  */
+	          __cpu_model.__cpu_subtype = INTEL_COREI7_CASCADELAKE;
+	        else
+	          /* Skylake with AVX-512 support.  */
+	          __cpu_model.__cpu_subtype = INTEL_COREI7_SKYLAKE_AVX512;
+	      }
 	      break;
 	    case 0x66:
 	      /* Cannon Lake.  */
@@ -275,7 +297,14 @@ get_available_features (unsigned int ecx, unsigned int edx,
     }
 
 #define set_feature(f) \
-  if (f < 32) features |= (1U << f); else features2 |= (1U << (f - 32))
+  do						\
+    {						\
+      if (f < 32)				\
+	features |= (1U << (f & 31));		\
+      else					\
+	features2 |= (1U << ((f - 32) & 31));	\
+    }						\
+  while (0)
 
   if (edx & bit_CMOV)
     set_feature (FEATURE_CMOV);
@@ -307,7 +336,7 @@ get_available_features (unsigned int ecx, unsigned int edx,
 	set_feature (FEATURE_FMA);
     }
 
-  /* Get Advanced Features at level 7 (eax = 7, ecx = 0). */
+  /* Get Advanced Features at level 7 (eax = 7, ecx = 0/1). */
   if (max_cpuid_level >= 7)
     {
       __cpuid_count (7, 0, eax, ebx, ecx, edx);
@@ -356,6 +385,10 @@ get_available_features (unsigned int ecx, unsigned int edx,
 	    set_feature (FEATURE_AVX5124VNNIW);
 	  if (edx & bit_AVX5124FMAPS)
 	    set_feature (FEATURE_AVX5124FMAPS);
+
+	  __cpuid_count (7, 1, eax, ebx, ecx, edx);
+	  if (eax & bit_AVX512BF16)
+	    set_feature (FEATURE_AVX512BF16);
 	}
     }
 

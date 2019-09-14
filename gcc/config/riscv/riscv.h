@@ -1,5 +1,5 @@
 /* Definition of RISC-V target for GNU compiler.
-   Copyright (C) 2011-2018 Free Software Foundation, Inc.
+   Copyright (C) 2011-2019 Free Software Foundation, Inc.
    Contributed by Andrew Waterman (andrew@sifive.com).
    Based on MIPS target for GNU compiler.
 
@@ -26,6 +26,9 @@ along with GCC; see the file COPYING3.  If not see
 
 /* Target CPU builtins.  */
 #define TARGET_CPU_CPP_BUILTINS() riscv_cpu_cpp_builtins (pfile)
+
+/* Target CPU versions for D.  */
+#define TARGET_D_CPU_VERSIONS riscv_d_target_versions
 
 /* Default target_flags if no switches are specified  */
 
@@ -102,9 +105,11 @@ along with GCC; see the file COPYING3.  If not see
 #define UNITS_PER_FP_REG (TARGET_DOUBLE_FLOAT ? 8 : 4)
 
 /* The largest type that can be passed in floating-point registers.  */
-#define UNITS_PER_FP_ARG					\
-  (riscv_abi == ABI_ILP32 || riscv_abi == ABI_LP64 ? 0 :	\
-   riscv_abi == ABI_ILP32F || riscv_abi == ABI_LP64F ? 4 : 8)	\
+#define UNITS_PER_FP_ARG						\
+  ((riscv_abi == ABI_ILP32 || riscv_abi == ABI_ILP32E			\
+    || riscv_abi == ABI_LP64)						\
+   ? 0 									\
+   : ((riscv_abi == ABI_ILP32F || riscv_abi == ABI_LP64F) ? 4 : 8))
 
 /* Set the sizes of the core types.  */
 #define SHORT_TYPE_SIZE 16
@@ -124,10 +129,11 @@ along with GCC; see the file COPYING3.  If not see
 #define FUNCTION_BOUNDARY (TARGET_RVC ? 16 : 32)
 
 /* The smallest supported stack boundary the calling convention supports.  */
-#define STACK_BOUNDARY (2 * BITS_PER_WORD)
+#define STACK_BOUNDARY \
+  (riscv_abi == ABI_ILP32E ? BITS_PER_WORD : 2 * BITS_PER_WORD)
 
 /* The ABI stack alignment.  */
-#define ABI_STACK_BOUNDARY 128
+#define ABI_STACK_BOUNDARY (riscv_abi == ABI_ILP32E ? BITS_PER_WORD : 128)
 
 /* There is no point aligning anything to a rounder boundary than this.  */
 #define BIGGEST_ALIGNMENT 128
@@ -162,6 +168,13 @@ along with GCC; see the file COPYING3.  If not see
    mode that should actually be used.  We allow pairs of registers.  */
 #define MAX_FIXED_MODE_SIZE GET_MODE_BITSIZE (TARGET_64BIT ? TImode : DImode)
 
+/* DATA_ALIGNMENT and LOCAL_ALIGNMENT common definition.  */
+#define RISCV_EXPAND_ALIGNMENT(COND, TYPE, ALIGN)			\
+  (((COND) && ((ALIGN) < BITS_PER_WORD)					\
+    && (TREE_CODE (TYPE) == ARRAY_TYPE					\
+	|| TREE_CODE (TYPE) == UNION_TYPE				\
+	|| TREE_CODE (TYPE) == RECORD_TYPE)) ? BITS_PER_WORD : (ALIGN))
+
 /* If defined, a C expression to compute the alignment for a static
    variable.  TYPE is the data type, and ALIGN is the alignment that
    the object would ordinarily have.  The value of this macro is used
@@ -174,18 +187,16 @@ along with GCC; see the file COPYING3.  If not see
    cause character arrays to be word-aligned so that `strcpy' calls
    that copy constants to character arrays can be done inline.  */
 
-#define DATA_ALIGNMENT(TYPE, ALIGN)					\
-  ((((ALIGN) < BITS_PER_WORD)						\
-    && (TREE_CODE (TYPE) == ARRAY_TYPE					\
-	|| TREE_CODE (TYPE) == UNION_TYPE				\
-	|| TREE_CODE (TYPE) == RECORD_TYPE)) ? BITS_PER_WORD : (ALIGN))
+#define DATA_ALIGNMENT(TYPE, ALIGN)						\
+  RISCV_EXPAND_ALIGNMENT (riscv_align_data_type == riscv_align_data_type_xlen,	\
+			  TYPE, ALIGN)
 
 /* We need this for the same reason as DATA_ALIGNMENT, namely to cause
    character arrays to be word-aligned so that `strcpy' calls that copy
    constants to character arrays can be done inline, and 'strcmp' can be
    optimised to use word loads. */
 #define LOCAL_ALIGNMENT(TYPE, ALIGN) \
-  DATA_ALIGNMENT (TYPE, ALIGN)
+  RISCV_EXPAND_ALIGNMENT (true, TYPE, ALIGN)
 
 /* Define if operations between registers always perform the operation
    on the full register even if a narrower mode is specified.  */
@@ -260,7 +271,7 @@ along with GCC; see the file COPYING3.  If not see
 /* Internal macros to classify an ISA register's type.  */
 
 #define GP_REG_FIRST 0
-#define GP_REG_LAST  31
+#define GP_REG_LAST  (TARGET_RVE ? 15 : 31)
 #define GP_REG_NUM   (GP_REG_LAST - GP_REG_FIRST + 1)
 
 #define FP_REG_FIRST 32
@@ -490,7 +501,7 @@ enum reg_class
 #define GP_RETURN GP_ARG_FIRST
 #define FP_RETURN (UNITS_PER_FP_ARG == 0 ? GP_RETURN : FP_ARG_FIRST)
 
-#define MAX_ARGS_IN_REGISTERS 8
+#define MAX_ARGS_IN_REGISTERS (riscv_abi == ABI_ILP32E ? 6 : 8)
 
 /* Symbolic macros for the first/last argument registers.  */
 
@@ -513,8 +524,7 @@ enum reg_class
 #define FUNCTION_VALUE_REGNO_P(N) ((N) == GP_RETURN || (N) == FP_RETURN)
 
 /* 1 if N is a possible register number for function argument passing.
-   We have no FP argument registers when soft-float.  When FP registers
-   are 32 bits, we can't directly reference the odd numbered ones.  */
+   We have no FP argument registers when soft-float.  */
 
 /* Accept arguments in a0-a7, and in fa0-fa7 if permitted by the ABI.  */
 #define FUNCTION_ARG_REGNO_P(N)						\
@@ -536,7 +546,7 @@ typedef struct {
 #define INIT_CUMULATIVE_ARGS(CUM, FNTYPE, LIBNAME, INDIRECT, N_NAMED_ARGS) \
   memset (&(CUM), 0, sizeof (CUM))
 
-#define EPILOGUE_USES(REGNO)	((REGNO) == RETURN_ADDR_REGNUM)
+#define EPILOGUE_USES(REGNO)	riscv_epilogue_uses (REGNO)
 
 /* Align based on stack boundary, which might have been set by the user.  */
 #define RISCV_STACK_ALIGN(LOC) \
@@ -636,7 +646,9 @@ typedef struct {
    and maybe make use of that.  */
 #define SLOW_BYTE_ACCESS 1
 
-#define SHIFT_COUNT_TRUNCATED 1
+/* Using SHIFT_COUNT_TRUNCATED is discouraged, so we handle this with patterns
+   in the md file instead.  */
+#define SHIFT_COUNT_TRUNCATED 0
 
 /* Specify the machine mode that pointers have.
    After generation of rtl, the compiler makes no further distinction
@@ -654,6 +666,17 @@ typedef struct {
 
 #define BRANCH_COST(speed_p, predictable_p) \
   ((!(speed_p) || (predictable_p)) ? 2 : riscv_branch_cost)
+
+/* True if the target optimizes short forward branches around integer
+   arithmetic instructions into predicated operations, e.g., for
+   conditional-move operations.  The macro assumes that all branch
+   instructions (BEQ, BNE, BLT, BLTU, BGE, BGEU, C.BEQZ, and C.BNEZ)
+   support this feature.  The macro further assumes that any integer
+   arithmetic and logical operation (ADD[I], SUB, SLL[I], SRL[I], SRA[I],
+   SLT[I][U], AND[I], XOR[I], OR[I], LUI, AUIPC, and their compressed
+   counterparts, including C.MV and C.LI) can be in the branch shadow.  */
+
+#define TARGET_SFB_ALU (riscv_microarchitecture == sifive_7)
 
 #define LOGICAL_OP_NON_SHORT_CIRCUIT 0
 
@@ -822,20 +845,20 @@ while (0)
 #undef PTRDIFF_TYPE
 #define PTRDIFF_TYPE (POINTER_SIZE == 64 ? "long int" : "int")
 
-/* The maximum number of bytes copied by one iteration of a movmemsi loop.  */
+/* The maximum number of bytes copied by one iteration of a cpymemsi loop.  */
 
 #define RISCV_MAX_MOVE_BYTES_PER_LOOP_ITER (UNITS_PER_WORD * 4)
 
 /* The maximum number of bytes that can be copied by a straight-line
-   movmemsi implementation.  */
+   cpymemsi implementation.  */
 
 #define RISCV_MAX_MOVE_BYTES_STRAIGHT (RISCV_MAX_MOVE_BYTES_PER_LOOP_ITER * 3)
 
 /* If a memory-to-memory move would take MOVE_RATIO or more simple
-   move-instruction pairs, we will do a movmem or libcall instead.
+   move-instruction pairs, we will do a cpymem or libcall instead.
    Do not use move_by_pieces at all when strict alignment is not
    in effect but the target has slow unaligned accesses; in this
-   case, movmem or libcall is more efficient.  */
+   case, cpymem or libcall is more efficient.  */
 
 #define MOVE_RATIO(speed)						\
   (!STRICT_ALIGNMENT && riscv_slow_unaligned_access_p ? 1 :		\
@@ -868,17 +891,12 @@ extern unsigned riscv_stack_boundary;
 
 #define ABI_SPEC \
   "%{mabi=ilp32:ilp32}" \
+  "%{mabi=ilp32e:ilp32e}" \
   "%{mabi=ilp32f:ilp32f}" \
   "%{mabi=ilp32d:ilp32d}" \
   "%{mabi=lp64:lp64}" \
   "%{mabi=lp64f:lp64f}" \
   "%{mabi=lp64d:lp64d}" \
-
-#define STARTFILE_PREFIX_SPEC 			\
-   "/lib" XLEN_SPEC "/" ABI_SPEC "/ "		\
-   "/usr/lib" XLEN_SPEC "/" ABI_SPEC "/ "	\
-   "/lib/ "					\
-   "/usr/lib/ "
 
 /* ISA constants needed for code generation.  */
 #define OPCODE_LW    0x2003

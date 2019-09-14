@@ -1,6 +1,6 @@
 /* Read the GIMPLE representation from a file stream.
 
-   Copyright (C) 2009-2018 Free Software Foundation, Inc.
+   Copyright (C) 2009-2019 Free Software Foundation, Inc.
    Contributed by Kenneth Zadeck <zadeck@naturalbridge.com>
    Re-implemented by Diego Novillo <dnovillo@google.com>
 
@@ -84,7 +84,7 @@ lto_tag_check_set (enum LTO_tags actual, int ntags, ...)
 /* Read LENGTH bytes from STREAM to ADDR.  */
 
 void
-lto_input_data_block (struct lto_input_block *ib, void *addr, size_t length)
+lto_input_data_block (class lto_input_block *ib, void *addr, size_t length)
 {
   size_t i;
   unsigned char *const buffer = (unsigned char *) addr;
@@ -232,7 +232,7 @@ lto_location_cache::revert_location_cache ()
 
 void
 lto_location_cache::input_location (location_t *loc, struct bitpack_d *bp,
-				    struct data_in *data_in)
+				    class data_in *data_in)
 {
   static const char *stream_file;
   static int stream_line;
@@ -287,7 +287,7 @@ lto_location_cache::input_location (location_t *loc, struct bitpack_d *bp,
 
 void
 lto_input_location (location_t *loc, struct bitpack_d *bp,
-		    struct data_in *data_in)
+		    class data_in *data_in)
 {
   data_in->location_cache.input_location (loc, bp, data_in);
 }
@@ -297,7 +297,7 @@ lto_input_location (location_t *loc, struct bitpack_d *bp,
    discarded.  */
 
 location_t
-stream_input_location_now (struct bitpack_d *bp, struct data_in *data_in)
+stream_input_location_now (struct bitpack_d *bp, class data_in *data_in)
 {
   location_t loc;
   stream_input_location (&loc, bp, data_in);
@@ -313,7 +313,7 @@ stream_input_location_now (struct bitpack_d *bp, struct data_in *data_in)
    function scope for the read tree.  */
 
 tree
-lto_input_tree_ref (struct lto_input_block *ib, struct data_in *data_in,
+lto_input_tree_ref (class lto_input_block *ib, class data_in *data_in,
 		    struct function *fn, enum LTO_tags tag)
 {
   unsigned HOST_WIDE_INT ix_u;
@@ -378,7 +378,7 @@ lto_input_tree_ref (struct lto_input_block *ib, struct data_in *data_in,
    block IB, using descriptors in DATA_IN.  */
 
 static struct eh_catch_d *
-lto_input_eh_catch_list (struct lto_input_block *ib, struct data_in *data_in,
+lto_input_eh_catch_list (class lto_input_block *ib, class data_in *data_in,
 			 eh_catch *last_p)
 {
   eh_catch first;
@@ -424,7 +424,7 @@ lto_input_eh_catch_list (struct lto_input_block *ib, struct data_in *data_in,
    in DATA_IN.  */
 
 static eh_region
-input_eh_region (struct lto_input_block *ib, struct data_in *data_in, int ix)
+input_eh_region (class lto_input_block *ib, class data_in *data_in, int ix)
 {
   enum LTO_tags tag;
   eh_region r;
@@ -499,7 +499,7 @@ input_eh_region (struct lto_input_block *ib, struct data_in *data_in, int ix)
    in DATA_IN.  */
 
 static eh_landing_pad
-input_eh_lp (struct lto_input_block *ib, struct data_in *data_in, int ix)
+input_eh_lp (class lto_input_block *ib, class data_in *data_in, int ix)
 {
   enum LTO_tags tag;
   eh_landing_pad lp;
@@ -603,7 +603,7 @@ lto_init_eh (void)
    in DATA_IN.  */
 
 static void
-input_eh_regions (struct lto_input_block *ib, struct data_in *data_in,
+input_eh_regions (class lto_input_block *ib, class data_in *data_in,
 		  struct function *fn)
 {
   HOST_WIDE_INT i, root_region, len;
@@ -714,7 +714,7 @@ make_new_block (struct function *fn, unsigned int index)
 /* Read the CFG for function FN from input block IB.  */
 
 static void
-input_cfg (struct lto_input_block *ib, struct data_in *data_in,
+input_cfg (class lto_input_block *ib, class data_in *data_in,
 	   struct function *fn)
 {
   unsigned int bb_count;
@@ -807,7 +807,7 @@ input_cfg (struct lto_input_block *ib, struct data_in *data_in,
 	  continue;
 	}
 
-      struct loop *loop = alloc_loop ();
+      class loop *loop = alloc_loop ();
       loop->header = BASIC_BLOCK_FOR_FN (fn, header_index);
       loop->header->loop_father = loop;
 
@@ -826,6 +826,7 @@ input_cfg (struct lto_input_block *ib, struct data_in *data_in,
       /* Read OMP SIMD related info.  */
       loop->safelen = streamer_read_hwi (ib);
       loop->unroll = streamer_read_hwi (ib);
+      loop->owned_clique = streamer_read_hwi (ib);
       loop->dont_vectorize = streamer_read_hwi (ib);
       loop->force_vectorize = streamer_read_hwi (ib);
       loop->simduid = stream_read_tree (ib, data_in);
@@ -846,7 +847,7 @@ input_cfg (struct lto_input_block *ib, struct data_in *data_in,
    block IB.  */
 
 static void
-input_ssa_names (struct lto_input_block *ib, struct data_in *data_in,
+input_ssa_names (class lto_input_block *ib, class data_in *data_in,
 		 struct function *fn)
 {
   unsigned int i, size;
@@ -963,8 +964,8 @@ fixup_call_stmt_edges (struct cgraph_node *orig, gimple **stmts)
    using input block IB.  */
 
 static void
-input_struct_function_base (struct function *fn, struct data_in *data_in,
-                            struct lto_input_block *ib)
+input_struct_function_base (struct function *fn, class data_in *data_in,
+	                    class lto_input_block *ib)
 {
   struct bitpack_d bp;
   int len;
@@ -1004,6 +1005,7 @@ input_struct_function_base (struct function *fn, struct data_in *data_in,
   fn->has_forced_label_in_static = bp_unpack_value (&bp, 1);
   fn->calls_alloca = bp_unpack_value (&bp, 1);
   fn->calls_setjmp = bp_unpack_value (&bp, 1);
+  fn->calls_eh_return = bp_unpack_value (&bp, 1);
   fn->has_force_vectorize_loops = bp_unpack_value (&bp, 1);
   fn->has_simduid_loops = bp_unpack_value (&bp, 1);
   fn->va_list_fpr_size = bp_unpack_value (&bp, 8);
@@ -1013,14 +1015,22 @@ input_struct_function_base (struct function *fn, struct data_in *data_in,
   /* Input the function start and end loci.  */
   fn->function_start_locus = stream_input_location_now (&bp, data_in);
   fn->function_end_locus = stream_input_location_now (&bp, data_in);
+
+  /* Restore the instance discriminators if present.  */
+  int instance_number = bp_unpack_value (&bp, 1);
+  if (instance_number)
+    {
+      instance_number = bp_unpack_value (&bp, sizeof (int) * CHAR_BIT);
+      maybe_create_decl_to_instance_map ()->put (fn->decl, instance_number);
+    }
 }
 
 
 /* Read the body of function FN_DECL from DATA_IN using input block IB.  */
 
 static void
-input_function (tree fn_decl, struct data_in *data_in,
-		struct lto_input_block *ib, struct lto_input_block *ib_cfg)
+input_function (tree fn_decl, class data_in *data_in,
+		class lto_input_block *ib, class lto_input_block *ib_cfg)
 {
   struct function *fn;
   enum LTO_tags tag;
@@ -1131,6 +1141,14 @@ input_function (tree fn_decl, struct data_in *data_in,
 		      ? !MAY_HAVE_DEBUG_MARKER_STMTS
 		      : !MAY_HAVE_DEBUG_BIND_STMTS))
 		remove = true;
+	      /* In case the linemap overflows locations can be dropped
+		 to zero.  Thus do not keep nonsensical inline entry markers
+		 we'd later ICE on.  */
+	      tree block;
+	      if (gimple_debug_inline_entry_p (stmt)
+		  && (block = gimple_block (stmt))
+		  && !inlined_function_outer_scope_p (block))
+		remove = true;
 	      if (is_gimple_call (stmt)
 		  && gimple_call_internal_p (stmt))
 		{
@@ -1223,8 +1241,8 @@ input_function (tree fn_decl, struct data_in *data_in,
 /* Read the body of function FN_DECL from DATA_IN using input block IB.  */
 
 static void
-input_constructor (tree var, struct data_in *data_in,
-		   struct lto_input_block *ib)
+input_constructor (tree var, class data_in *data_in,
+		   class lto_input_block *ib)
 {
   DECL_INITIAL (var) = stream_read_tree (ib, data_in);
 }
@@ -1241,7 +1259,7 @@ lto_read_body_or_constructor (struct lto_file_decl_data *file_data, struct symta
 			      const char *data, enum lto_section_type section_type)
 {
   const struct lto_function_header *header;
-  struct data_in *data_in;
+  class data_in *data_in;
   int cfg_offset;
   int main_offset;
   int string_offset;
@@ -1354,7 +1372,7 @@ vec<dref_entry> dref_queue;
    input block IB using the per-file context in DATA_IN.  */
 
 static void
-lto_read_tree_1 (struct lto_input_block *ib, struct data_in *data_in, tree expr)
+lto_read_tree_1 (class lto_input_block *ib, class data_in *data_in, tree expr)
 {
   /* Read all the bitfield values in EXPR.  Note that for LTO, we
      only write language-independent bitfields, so no more unpacking is
@@ -1392,7 +1410,7 @@ lto_read_tree_1 (struct lto_input_block *ib, struct data_in *data_in, tree expr)
    input block IB using the per-file context in DATA_IN.  */
 
 static tree
-lto_read_tree (struct lto_input_block *ib, struct data_in *data_in,
+lto_read_tree (class lto_input_block *ib, class data_in *data_in,
 	       enum LTO_tags tag, hashval_t hash)
 {
   /* Instantiate a new tree node.  */
@@ -1415,7 +1433,7 @@ lto_read_tree (struct lto_input_block *ib, struct data_in *data_in,
    following in the IB, DATA_IN stream.  */
 
 hashval_t
-lto_input_scc (struct lto_input_block *ib, struct data_in *data_in,
+lto_input_scc (class lto_input_block *ib, class data_in *data_in,
 	       unsigned *len, unsigned *entry_len)
 {
   /* A blob of unnamed tree nodes, fill the cache from it and
@@ -1472,7 +1490,7 @@ lto_input_scc (struct lto_input_block *ib, struct data_in *data_in,
    to previously read nodes.  */
 
 tree
-lto_input_tree_1 (struct lto_input_block *ib, struct data_in *data_in,
+lto_input_tree_1 (class lto_input_block *ib, class data_in *data_in,
 		  enum LTO_tags tag, hashval_t hash)
 {
   tree result;
@@ -1522,7 +1540,7 @@ lto_input_tree_1 (struct lto_input_block *ib, struct data_in *data_in,
 }
 
 tree
-lto_input_tree (struct lto_input_block *ib, struct data_in *data_in)
+lto_input_tree (class lto_input_block *ib, class data_in *data_in)
 {
   enum LTO_tags tag;
 
@@ -1554,7 +1572,7 @@ lto_input_toplevel_asms (struct lto_file_decl_data *file_data, int order_base)
   const struct lto_simple_header_with_strings *header
     = (const struct lto_simple_header_with_strings *) data;
   int string_offset;
-  struct data_in *data_in;
+  class data_in *data_in;
   tree str;
 
   if (! data)
@@ -1602,7 +1620,7 @@ lto_input_mode_table (struct lto_file_decl_data *file_data)
   const struct lto_simple_header_with_strings *header
     = (const struct lto_simple_header_with_strings *) data;
   int string_offset;
-  struct data_in *data_in;
+  class data_in *data_in;
   string_offset = sizeof (*header) + header->main_size;
 
   lto_input_block ib (data + sizeof (*header), header->main_size, NULL);
@@ -1691,7 +1709,7 @@ lto_input_mode_table (struct lto_file_decl_data *file_data)
 		}
 	      /* FALLTHRU */
 	    default:
-	      fatal_error (UNKNOWN_LOCATION, "unsupported mode %s\n", mname);
+	      fatal_error (UNKNOWN_LOCATION, "unsupported mode %qs", mname);
 	      break;
 	    }
 	}
@@ -1717,12 +1735,12 @@ lto_reader_init (void)
    table to use with LEN strings.  RESOLUTIONS is the vector of linker
    resolutions (NULL if not using a linker plugin).  */
 
-struct data_in *
+class data_in *
 lto_data_in_create (struct lto_file_decl_data *file_data, const char *strings,
 		    unsigned len,
 		    vec<ld_plugin_symbol_resolution_t> resolutions)
 {
-  struct data_in *data_in = new (struct data_in);
+  class data_in *data_in = new (class data_in);
   data_in->file_data = file_data;
   data_in->strings = strings;
   data_in->strings_len = len;
@@ -1735,7 +1753,7 @@ lto_data_in_create (struct lto_file_decl_data *file_data, const char *strings,
 /* Remove DATA_IN.  */
 
 void
-lto_data_in_delete (struct data_in *data_in)
+lto_data_in_delete (class data_in *data_in)
 {
   data_in->globals_resolution.release ();
   streamer_tree_cache_delete (data_in->reader_cache);

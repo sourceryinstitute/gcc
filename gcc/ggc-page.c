@@ -1,5 +1,5 @@
 /* "Bag-of-pages" garbage collector for the GNU compiler.
-   Copyright (C) 1999-2018 Free Software Foundation, Inc.
+   Copyright (C) 1999-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -200,7 +200,7 @@ static const size_t extra_order_size_table[] = {
   sizeof (struct function),
   sizeof (struct basic_block_def),
   sizeof (struct cgraph_node),
-  sizeof (struct loop),
+  sizeof (class loop),
 };
 
 /* The total number of orders.  */
@@ -943,8 +943,8 @@ alloc_page (unsigned order)
   if (GGC_DEBUG_LEVEL >= 2)
     fprintf (G.debug_file,
 	     "Allocating page at %p, object size=%lu, data %p-%p\n",
-	     (void *) entry, (unsigned long) OBJECT_SIZE (order), page,
-	     page + entry_size - 1);
+	     (void *) entry, (unsigned long) OBJECT_SIZE (order),
+	     (void *) page, (void *) (page + entry_size - 1));
 
   return entry;
 }
@@ -977,7 +977,7 @@ free_page (page_entry *entry)
   if (GGC_DEBUG_LEVEL >= 2)
     fprintf (G.debug_file,
 	     "Deallocating page at %p, data %p-%p\n", (void *) entry,
-	     entry->page, entry->page + entry->bytes - 1);
+	     (void *) entry->page, (void *) (entry->page + entry->bytes - 1));
 
   /* Mark the page as inaccessible.  Discard the handle to avoid handle
      leak.  */
@@ -2237,14 +2237,6 @@ ggc_grow (void)
     fprintf (stderr, " {GC start %luk} ", (unsigned long) G.allocated / 1024);
 }
 
-/* Print allocation statistics.  */
-#define SCALE(x) ((unsigned long) ((x) < 1024*10 \
-		  ? (x) \
-		  : ((x) < 1024*1024*10 \
-		     ? (x) / 1024 \
-		     : (x) / (1024*1024))))
-#define STAT_LABEL(x) ((x) < 1024*10 ? ' ' : ((x) < 1024*1024*10 ? 'k' : 'M'))
-
 void
 ggc_print_statistics (void)
 {
@@ -2296,53 +2288,62 @@ ggc_print_statistics (void)
 	  overhead += (sizeof (page_entry) - sizeof (long)
 		       + BITMAP_SIZE (OBJECTS_IN_PAGE (p) + 1));
 	}
-      fprintf (stderr, "%-8lu %10lu%c %10lu%c %10lu%c\n",
-	       (unsigned long) OBJECT_SIZE (i),
-	       SCALE (allocated), STAT_LABEL (allocated),
-	       SCALE (in_use), STAT_LABEL (in_use),
-	       SCALE (overhead), STAT_LABEL (overhead));
+      fprintf (stderr, "%-8" PRIu64 " " PRsa (10) " " PRsa (10) " "
+	       PRsa (10) "\n",
+	       (uint64_t)OBJECT_SIZE (i),
+	       SIZE_AMOUNT (allocated),
+	       SIZE_AMOUNT (in_use),
+	       SIZE_AMOUNT (overhead));
       total_overhead += overhead;
     }
-  fprintf (stderr, "%-8s %10lu%c %10lu%c %10lu%c\n", "Total",
-	   SCALE (G.bytes_mapped), STAT_LABEL (G.bytes_mapped),
-	   SCALE (G.allocated), STAT_LABEL (G.allocated),
-	   SCALE (total_overhead), STAT_LABEL (total_overhead));
+  fprintf (stderr, "%-8s " PRsa (10) " " PRsa (10) " " PRsa (10) "\n",
+	   "Total",
+	   SIZE_AMOUNT (G.bytes_mapped),
+	   SIZE_AMOUNT (G.allocated),
+	   SIZE_AMOUNT (total_overhead));
 
   if (GATHER_STATISTICS)
     {
       fprintf (stderr, "\nTotal allocations and overheads during "
 	       "the compilation process\n");
 
-      fprintf (stderr, "Total Overhead:                          %10"
-	       HOST_LONG_LONG_FORMAT "d\n", G.stats.total_overhead);
-      fprintf (stderr, "Total Allocated:                         %10"
-	       HOST_LONG_LONG_FORMAT "d\n",
-	       G.stats.total_allocated);
+      fprintf (stderr, "Total Overhead:                          "
+	       PRsa (9) "\n",
+	       SIZE_AMOUNT (G.stats.total_overhead));
+      fprintf (stderr, "Total Allocated:                         "
+	       PRsa (9) "\n",
+	       SIZE_AMOUNT (G.stats.total_allocated));
 
-      fprintf (stderr, "Total Overhead  under  32B:              %10"
-	       HOST_LONG_LONG_FORMAT "d\n", G.stats.total_overhead_under32);
-      fprintf (stderr, "Total Allocated under  32B:              %10"
-	       HOST_LONG_LONG_FORMAT "d\n", G.stats.total_allocated_under32);
-      fprintf (stderr, "Total Overhead  under  64B:              %10"
-	       HOST_LONG_LONG_FORMAT "d\n", G.stats.total_overhead_under64);
-      fprintf (stderr, "Total Allocated under  64B:              %10"
-	       HOST_LONG_LONG_FORMAT "d\n", G.stats.total_allocated_under64);
-      fprintf (stderr, "Total Overhead  under 128B:              %10"
-	       HOST_LONG_LONG_FORMAT "d\n", G.stats.total_overhead_under128);
-      fprintf (stderr, "Total Allocated under 128B:              %10"
-	       HOST_LONG_LONG_FORMAT "d\n", G.stats.total_allocated_under128);
+      fprintf (stderr, "Total Overhead  under  32B:              "
+	       PRsa (9) "\n",
+	       SIZE_AMOUNT (G.stats.total_overhead_under32));
+      fprintf (stderr, "Total Allocated under  32B:              "
+	       PRsa (9) "\n",
+	       SIZE_AMOUNT (G.stats.total_allocated_under32));
+      fprintf (stderr, "Total Overhead  under  64B:              "
+	       PRsa (9) "\n",
+	       SIZE_AMOUNT (G.stats.total_overhead_under64));
+      fprintf (stderr, "Total Allocated under  64B:              "
+	       PRsa (9) "\n",
+	       SIZE_AMOUNT (G.stats.total_allocated_under64));
+      fprintf (stderr, "Total Overhead  under 128B:              "
+	       PRsa (9) "\n",
+	       SIZE_AMOUNT (G.stats.total_overhead_under128));
+      fprintf (stderr, "Total Allocated under 128B:              "
+	       PRsa (9) "\n",
+	       SIZE_AMOUNT (G.stats.total_allocated_under128));
 
       for (i = 0; i < NUM_ORDERS; i++)
 	if (G.stats.total_allocated_per_order[i])
 	  {
-	    fprintf (stderr, "Total Overhead  page size %9lu:     %10"
-		     HOST_LONG_LONG_FORMAT "d\n",
-		     (unsigned long) OBJECT_SIZE (i),
-		     G.stats.total_overhead_per_order[i]);
-	    fprintf (stderr, "Total Allocated page size %9lu:     %10"
-		     HOST_LONG_LONG_FORMAT "d\n",
-		     (unsigned long) OBJECT_SIZE (i),
-		     G.stats.total_allocated_per_order[i]);
+	    fprintf (stderr, "Total Overhead  page size %9" PRIu64 ":     "
+		     PRsa (9) "\n",
+		     (uint64_t)OBJECT_SIZE (i),
+		     SIZE_AMOUNT (G.stats.total_overhead_per_order[i]));
+	    fprintf (stderr, "Total Allocated page size %9" PRIu64 ":     "
+		     PRsa (9) "\n",
+		     (uint64_t)OBJECT_SIZE (i),
+		     SIZE_AMOUNT (G.stats.total_allocated_per_order[i]));
 	  }
   }
 }
@@ -2454,7 +2455,7 @@ ggc_pch_write_object (struct ggc_pch_data *d,
     }
 
   if (fwrite (x, size, 1, f) != 1)
-    fatal_error (input_location, "can%'t write PCH file: %m");
+    fatal_error (input_location, "cannot write PCH file: %m");
 
   /* If SIZE is not the same as OBJECT_SIZE(order), then we need to pad the
      object out to OBJECT_SIZE(order).  This happens for strings.  */
@@ -2470,13 +2471,13 @@ ggc_pch_write_object (struct ggc_pch_data *d,
       if (padding <= sizeof (emptyBytes))
         {
           if (fwrite (emptyBytes, 1, padding, f) != padding)
-            fatal_error (input_location, "can%'t write PCH file");
+	    fatal_error (input_location, "cannot write PCH file");
         }
       else
         {
           /* Larger than our buffer?  Just default to fseek.  */
           if (fseek (f, padding, SEEK_CUR) != 0)
-            fatal_error (input_location, "can%'t write PCH file");
+	    fatal_error (input_location, "cannot write PCH file");
         }
     }
 
@@ -2485,14 +2486,14 @@ ggc_pch_write_object (struct ggc_pch_data *d,
       && fseek (f, ROUND_UP_VALUE (d->d.totals[order] * OBJECT_SIZE (order),
 				   G.pagesize),
 		SEEK_CUR) != 0)
-    fatal_error (input_location, "can%'t write PCH file: %m");
+    fatal_error (input_location, "cannot write PCH file: %m");
 }
 
 void
 ggc_pch_finish (struct ggc_pch_data *d, FILE *f)
 {
   if (fwrite (&d->d, sizeof (d->d), 1, f) != 1)
-    fatal_error (input_location, "can%'t write PCH file: %m");
+    fatal_error (input_location, "cannot write PCH file: %m");
   free (d);
 }
 
@@ -2555,6 +2556,9 @@ ggc_pch_read (FILE *f, void *addr)
 
   count_old_page_tables = G.by_depth_in_use;
 
+  if (fread (&d, sizeof (d), 1, f) != 1)
+    fatal_error (input_location, "cannot read PCH file: %m");
+
   /* We've just read in a PCH file.  So, every object that used to be
      allocated is now free.  */
   clear_marks ();
@@ -2583,8 +2587,6 @@ ggc_pch_read (FILE *f, void *addr)
 
   /* Allocate the appropriate page-table entries for the pages read from
      the PCH file.  */
-  if (fread (&d, sizeof (d), 1, f) != 1)
-    fatal_error (input_location, "can%'t read PCH file: %m");
 
   for (i = 0; i < NUM_ORDERS; i++)
     {

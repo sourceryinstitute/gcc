@@ -1,7 +1,7 @@
 /* Dependency checks for instruction scheduling, shared between ARM and
    AARCH64.
 
-   Copyright (C) 1991-2018 Free Software Foundation, Inc.
+   Copyright (C) 1991-2019 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
    This file is part of GCC.
@@ -29,46 +29,7 @@
 #include "tm.h"
 #include "rtl.h"
 #include "rtl-iter.h"
-
-/* In ARMv8-A there's a general expectation that AESE/AESMC
-   and AESD/AESIMC sequences of the form:
-
-   AESE Vn, _
-   AESMC Vn, Vn
-
-   will issue both instructions in a single cycle on super-scalar
-   implementations.  This function identifies such pairs.  */
-
-int
-aarch_crypto_can_dual_issue (rtx_insn *producer_insn, rtx_insn *consumer_insn)
-{
-  rtx producer_set, consumer_set;
-  rtx producer_src, consumer_src;
-
-  producer_set = single_set (producer_insn);
-  consumer_set = single_set (consumer_insn);
-
-  producer_src = producer_set ? SET_SRC (producer_set) : NULL;
-  consumer_src = consumer_set ? SET_SRC (consumer_set) : NULL;
-
-  if (producer_src && consumer_src
-      && GET_CODE (producer_src) == UNSPEC && GET_CODE (consumer_src) == UNSPEC
-      && ((XINT (producer_src, 1) == UNSPEC_AESE
-           && XINT (consumer_src, 1) == UNSPEC_AESMC)
-          || (XINT (producer_src, 1) == UNSPEC_AESD
-              && XINT (consumer_src, 1) == UNSPEC_AESIMC)))
-  {
-    unsigned int regno = REGNO (SET_DEST (producer_set));
-
-    /* Before reload the registers are virtual, so the destination of
-       consumer_set doesn't need to match.  */
-
-    return (REGNO (SET_DEST (consumer_set)) == regno || !reload_completed)
-	    && REGNO (XVECEXP (consumer_src, 0, 0)) == regno;
-  }
-
-  return 0;
-}
+#include "memmodel.h"
 
 /* Return TRUE if X is either an arithmetic shift left, or
    is a multiplication by a power of two.  */
@@ -228,6 +189,28 @@ aarch_rev16_p (rtx x)
     is_rev = aarch_rev16_p_1 (right_sub_rtx, left_sub_rtx, GET_MODE (x));
 
   return is_rev;
+}
+
+/* Return non-zero if the RTX representing a memory model is a memory model
+   that needs acquire semantics.  */
+bool
+aarch_mm_needs_acquire (rtx const_int)
+{
+  enum memmodel model = memmodel_from_int (INTVAL (const_int));
+  return !(is_mm_relaxed (model)
+	   || is_mm_consume (model)
+	   || is_mm_release (model));
+}
+
+/* Return non-zero if the RTX representing a memory model is a memory model
+   that needs release semantics.  */
+bool
+aarch_mm_needs_release (rtx const_int)
+{
+  enum memmodel model = memmodel_from_int (INTVAL (const_int));
+  return !(is_mm_relaxed (model)
+	   || is_mm_consume (model)
+	   || is_mm_acquire (model));
 }
 
 /* Return nonzero if the CONSUMER instruction (a load) does need

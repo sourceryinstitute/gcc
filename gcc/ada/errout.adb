@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2018, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2019, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -1100,7 +1100,7 @@ package body Errout is
       --  Test if warning to be treated as error
 
       Warn_Err :=
-        Is_Warning_Msg
+        (Is_Warning_Msg or Is_Style_Msg)
           and then (Warning_Treated_As_Error (Msg_Buffer (1 .. Msglen))
                       or else
                     Warning_Treated_As_Error (Get_Warning_Tag (Cur_Msg)));
@@ -2387,7 +2387,7 @@ package body Errout is
          end loop;
 
          if Nkind (N) = N_Raise_Constraint_Error
-           and then Original_Node (N) /= N
+           and then Is_Rewrite_Substitution (N)
            and then No (Condition (N))
          then
             --  Warnings may have been posted on subexpressions of the original
@@ -3257,40 +3257,9 @@ package body Errout is
       if Debug_Flag_OO then
          return False;
 
-      --  Processing for "atomic access cannot be guaranteed"
-
-      elsif Msg = "atomic access to & cannot be guaranteed" then
-
-         --  When an atomic object refers to a non-atomic type in the same
-         --  scope, we implicitly make the type atomic. In the non-error case
-         --  this is surely safe (and in fact prevents an error from occurring
-         --  if the type is not atomic by default). But if the object cannot be
-         --  made atomic, then we introduce an extra junk message by this
-         --  manipulation, which we get rid of here.
-
-         --  We identify this case by the fact that it references a type for
-         --  which Is_Atomic is set, but there is no Atomic pragma setting it.
-
-         if Is_Type (E)
-           and then Is_Atomic (E)
-           and then No (Get_Rep_Pragma (E, Name_Atomic))
-         then
-            return True;
-         end if;
-
-      --  Similar processing for "volatile full access cannot be guaranteed"
-
-      elsif Msg = "volatile full access to & cannot be guaranteed" then
-         if Is_Type (E)
-           and then Is_Volatile_Full_Access (E)
-           and then No (Get_Rep_Pragma (E, Name_Volatile_Full_Access))
-         then
-            return True;
-         end if;
-
       --  Processing for "Size too small" messages
 
-      elsif Msg = "size for& too small, minimum allowed is ^" then
+      elsif Msg = Size_Too_Small_Message then
 
          --  Suppress "size too small" errors in CodePeer mode, since code may
          --  be analyzed in a different configuration than the one used for

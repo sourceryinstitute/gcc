@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2018, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2019, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -131,6 +131,8 @@ package Rtsfind is
       Ada_Real_Time,
       Ada_Streams,
       Ada_Strings,
+      Ada_Synchronous_Barriers,
+      Ada_Synchronous_Task_Control,
       Ada_Tags,
       Ada_Task_Identification,
       Ada_Task_Termination,
@@ -218,6 +220,7 @@ package Rtsfind is
       System_Atomic_Primitives,
       System_Aux_DEC,
       System_Bignums,
+      System_Bitfields,
       System_Bit_Ops,
       System_Boolean_Array_Operations,
       System_Byte_Swapping,
@@ -609,6 +612,10 @@ package Rtsfind is
 
      RE_Unbounded_String,                -- Ada.Strings.Unbounded
 
+     RE_Wait_For_Release,                -- Ada.Synchronous_Barriers
+
+     RE_Suspend_Until_True,              -- Ada.Synchronous_Task_Control
+
      RE_Access_Level,                    -- Ada.Tags
      RE_Alignment,                       -- Ada.Tags
      RE_Address_Array,                   -- Ada.Tags
@@ -802,6 +809,8 @@ package Rtsfind is
      RE_Bignum_In_LLI_Range,             -- System.Bignums
      RE_To_Bignum,                       -- System.Bignums
      RE_From_Bignum,                     -- System.Bignums
+
+     RE_Copy_Bitfield,                   -- System.Bitfields
 
      RE_Bit_And,                         -- System.Bit_Ops
      RE_Bit_Eq,                          -- System.Bit_Ops
@@ -1847,6 +1856,10 @@ package Rtsfind is
 
      RE_Unbounded_String                 => Ada_Strings_Unbounded,
 
+     RE_Wait_For_Release                 => Ada_Synchronous_Barriers,
+
+     RE_Suspend_Until_True               => Ada_Synchronous_Task_Control,
+
      RE_Access_Level                     => Ada_Tags,
      RE_Alignment                        => Ada_Tags,
      RE_Address_Array                    => Ada_Tags,
@@ -2040,6 +2053,8 @@ package Rtsfind is
      RE_Bignum_In_LLI_Range              => System_Bignums,
      RE_To_Bignum                        => System_Bignums,
      RE_From_Bignum                      => System_Bignums,
+
+     RE_Copy_Bitfield                    => System_Bitfields,
 
      RE_Bit_And                          => System_Bit_Ops,
      RE_Bit_Eq                           => System_Bit_Ops,
@@ -2745,23 +2760,23 @@ package Rtsfind is
      RE_W_WC                             => System_Stream_Attributes,
      RE_W_WWC                            => System_Stream_Attributes,
 
-     RE_Storage_Array_Input              =>  System_Strings_Stream_Ops,
-     RE_Storage_Array_Input_Blk_IO       =>  System_Strings_Stream_Ops,
-     RE_Storage_Array_Output             =>  System_Strings_Stream_Ops,
-     RE_Storage_Array_Output_Blk_IO      =>  System_Strings_Stream_Ops,
-     RE_Storage_Array_Read               =>  System_Strings_Stream_Ops,
-     RE_Storage_Array_Read_Blk_IO        =>  System_Strings_Stream_Ops,
-     RE_Storage_Array_Write              =>  System_Strings_Stream_Ops,
-     RE_Storage_Array_Write_Blk_IO       =>  System_Strings_Stream_Ops,
+     RE_Storage_Array_Input              => System_Strings_Stream_Ops,
+     RE_Storage_Array_Input_Blk_IO       => System_Strings_Stream_Ops,
+     RE_Storage_Array_Output             => System_Strings_Stream_Ops,
+     RE_Storage_Array_Output_Blk_IO      => System_Strings_Stream_Ops,
+     RE_Storage_Array_Read               => System_Strings_Stream_Ops,
+     RE_Storage_Array_Read_Blk_IO        => System_Strings_Stream_Ops,
+     RE_Storage_Array_Write              => System_Strings_Stream_Ops,
+     RE_Storage_Array_Write_Blk_IO       => System_Strings_Stream_Ops,
 
-     RE_Stream_Element_Array_Input          =>  System_Strings_Stream_Ops,
-     RE_Stream_Element_Array_Input_Blk_IO   =>  System_Strings_Stream_Ops,
-     RE_Stream_Element_Array_Output         =>  System_Strings_Stream_Ops,
-     RE_Stream_Element_Array_Output_Blk_IO  =>  System_Strings_Stream_Ops,
-     RE_Stream_Element_Array_Read           =>  System_Strings_Stream_Ops,
-     RE_Stream_Element_Array_Read_Blk_IO    =>  System_Strings_Stream_Ops,
-     RE_Stream_Element_Array_Write          =>  System_Strings_Stream_Ops,
-     RE_Stream_Element_Array_Write_Blk_IO   =>  System_Strings_Stream_Ops,
+     RE_Stream_Element_Array_Input          => System_Strings_Stream_Ops,
+     RE_Stream_Element_Array_Input_Blk_IO   => System_Strings_Stream_Ops,
+     RE_Stream_Element_Array_Output         => System_Strings_Stream_Ops,
+     RE_Stream_Element_Array_Output_Blk_IO  => System_Strings_Stream_Ops,
+     RE_Stream_Element_Array_Read           => System_Strings_Stream_Ops,
+     RE_Stream_Element_Array_Read_Blk_IO    => System_Strings_Stream_Ops,
+     RE_Stream_Element_Array_Write          => System_Strings_Stream_Ops,
+     RE_Stream_Element_Array_Write_Blk_IO   => System_Strings_Stream_Ops,
 
      RE_String_Input                     => System_Strings_Stream_Ops,
      RE_String_Input_Blk_IO              => System_Strings_Stream_Ops,
@@ -3145,7 +3160,7 @@ package Rtsfind is
    --  immediately, since obviously Ent cannot be the entity in question if the
    --  corresponding unit has not been loaded.
 
-   function Is_RTU (Ent : Entity_Id;  U : RTU_Id) return Boolean;
+   function Is_RTU (Ent : Entity_Id; U : RTU_Id) return Boolean;
    pragma Inline (Is_RTU);
    --  This function determines if the given entity corresponds to the entity
    --  for the unit referenced by U. If this unit has not been loaded, the

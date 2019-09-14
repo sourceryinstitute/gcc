@@ -1,5 +1,5 @@
-/* Declarations for C++ name lookup routines.
-   Copyright (C) 2003-2018 Free Software Foundation, Inc.
+/* Declarations for -*- C++ -*- name lookup routines.
+   Copyright (C) 2003-2019 Free Software Foundation, Inc.
    Contributed by Gabriel Dos Reis <gdr@integrable-solutions.net>
 
 This file is part of GCC.
@@ -112,7 +112,7 @@ enum scope_kind {
 			of an if or switch statement.  */
   sk_function_parms, /* The scope containing function parameters.  */
   sk_class,	     /* The scope containing the members of a class.  */
-  sk_scoped_enum,    /* The scope containing the enumertors of a C++0x
+  sk_scoped_enum,    /* The scope containing the enumerators of a C++11
                         scoped enumeration.  */
   sk_namespace,	     /* The scope containing the members of a
 			namespace, including the global scope.  */
@@ -176,9 +176,6 @@ struct GTY(()) cp_binding_level {
       are wrapped in TREE_LISTs; the TREE_VALUE is the OVERLOAD.  */
   tree names;
 
-  /* A list of USING_DECL nodes.  */
-  tree usings;
-
   /* Using directives.  */
   vec<tree, va_gc> *using_directives;
 
@@ -204,11 +201,6 @@ struct GTY(()) cp_binding_level {
 
   /* The binding level which this one is contained in (inherits from).  */
   cp_binding_level *level_chain;
-
-  /* List of VAR_DECLS saved from a previous for statement.
-      These would be dead in ISO-conforming code, but might
-      be referenced in ARM-era code.  */
-  vec<tree, va_gc> *dead_vars_from_for;
 
   /* STATEMENT_LIST for statements in this binding contour.
       Only used at present for SK_CLEANUP temporary bindings.  */
@@ -308,8 +300,8 @@ extern void do_namespace_alias (tree, tree);
 extern tree do_class_using_decl (tree, tree);
 extern tree lookup_arg_dependent (tree, tree, vec<tree, va_gc> *);
 extern tree search_anon_aggr (tree, tree, bool = false);
-extern tree get_class_binding_direct (tree, tree, int type_or_fns = -1);
-extern tree get_class_binding (tree, tree, int type_or_fns = -1);
+extern tree get_class_binding_direct (tree, tree, bool want_type = false);
+extern tree get_class_binding (tree, tree, bool want_type = false);
 extern tree *find_member_slot (tree klass, tree name);
 extern tree *add_member_slot (tree klass, tree name);
 extern void resort_type_member_vec (void *, void *,
@@ -320,10 +312,8 @@ extern tree innermost_non_namespace_value (tree);
 extern cxx_binding *outer_binding (tree, cxx_binding *, bool);
 extern void cp_emit_debug_info_for_using (tree, tree);
 
-extern void finish_namespace_using_decl (tree, tree, tree);
-extern void finish_local_using_decl (tree, tree, tree);
-extern void finish_namespace_using_directive (tree, tree);
-extern void finish_local_using_directive (tree, tree);
+extern void finish_nonmember_using_decl (tree scope, tree name);
+extern void finish_using_directive (tree target, tree attribs);
 extern tree pushdecl (tree, bool is_friend = false);
 extern tree pushdecl_outermost_localscope (tree);
 extern tree pushdecl_top_level (tree, bool is_friend = false);
@@ -335,5 +325,8 @@ extern void push_nested_namespace (tree);
 extern void pop_nested_namespace (tree);
 extern void push_to_top_level (void);
 extern void pop_from_top_level (void);
+extern void maybe_save_operator_binding (tree);
+extern void push_operator_bindings (void);
+extern void discard_operator_bindings (tree);
 
 #endif /* GCC_CP_NAME_LOOKUP_H */

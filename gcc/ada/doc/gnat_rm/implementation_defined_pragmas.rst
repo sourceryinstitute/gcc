@@ -89,6 +89,158 @@ Syntax:
 For the semantics of this pragma, see the entry for aspect ``Abstract_State`` in
 the SPARK 2014 Reference Manual, section 7.1.4.
 
+Pragma Acc_Parallel
+===================
+Syntax:
+
+.. code-block:: ada
+
+  pragma Acc_Parallel [( ACC_PARALLEL_CLAUSE [, ACC_PARALLEL_CLAUSE... ])];
+
+  ACC_PARALLEL_CLAUSE ::=
+      Acc_If        => boolean_EXPRESSION
+    | Acc_Private   => IDENTIFIERS
+    | Async         => integer_EXPRESSION
+    | Copy          => IDENTIFIERS
+    | Copy_In       => IDENTIFIERS
+    | Copy_Out      => IDENTIFIERS
+    | Create        => IDENTIFIERS
+    | Default       => None
+    | Device_Ptr    => IDENTIFIERS
+    | First_Private => IDENTIFIERS
+    | Num_Gangs     => integer_EXPRESSION
+    | Num_Workers   => integer_EXPRESSION
+    | Present       => IDENTIFIERS
+    | Reduction     => (REDUCTION_RECORD)
+    | Vector_Length => integer_EXPRESSION
+    | Wait          => INTEGERS
+
+  REDUCTION_RECORD ::=
+      "+"   => IDENTIFIERS
+    | "*"   => IDENTIFIERS
+    | "min" => IDENTIFIERS
+    | "max" => IDENTIFIERS
+    | "or"  => IDENTIFIERS
+    | "and" => IDENTIFIERS
+
+  IDENTIFIERS ::=
+    | IDENTIFIER
+    | (IDENTIFIER, IDENTIFIERS)
+
+  INTEGERS ::=
+    | integer_EXPRESSION
+    | (integer_EXPRESSION, INTEGERS)
+
+Requires the :switch:`-fopenacc` flag.
+
+Equivalent to the ``parallel`` directive of the OpenAcc standard. This pragma
+should be placed in loops. It offloads the content of the loop to an
+accelerator device.
+
+For more information about the effect of the clauses, see the OpenAcc
+specification.
+
+Pragma Acc_Loop
+===============
+Syntax:
+
+.. code-block:: ada
+
+  pragma Acc_Loop [( ACC_LOOP_CLAUSE [, ACC_LOOP_CLAUSE... ])];
+
+  ACC_LOOP_CLAUSE ::=
+      Auto
+    | Collapse        => INTEGER_LITERAL
+    | Gang            [=> GANG_ARG]
+    | Independent
+    | Private         => IDENTIFIERS
+    | Reduction       => (REDUCTION_RECORD)
+    | Seq
+    | Tile            => SIZE_EXPRESSION
+    | Vector          [=> integer_EXPRESSION]
+    | Worker          [=> integer_EXPRESSION]
+
+  GANG_ARG ::=
+      integer_EXPRESSION
+    | Static => SIZE_EXPRESSION
+
+  SIZE_EXPRESSION ::=
+      *
+    | integer_EXPRESSION
+
+Requires the :switch:`-fopenacc` flag.
+
+Equivalent to the ``loop`` directive of the OpenAcc standard. This pragma
+should be placed in for loops after the "Acc_Parallel" pragma. It tells the
+compiler how to parallelize the loop.
+
+For more information about the effect of the clauses, see the OpenAcc
+specification.
+
+Pragma Acc_Kernels
+==================
+Syntax:
+
+.. code-block:: ada
+
+  pragma Acc_Kernels [( ACC_KERNELS_CLAUSE [, ACC_KERNELS_CLAUSE...])];
+
+  ACC_KERNELS_CLAUSE ::=
+      Acc_If        => boolean_EXPRESSION
+    | Async         => integer_EXPRESSION
+    | Copy          => IDENTIFIERS
+    | Copy_In       => IDENTIFIERS
+    | Copy_Out      => IDENTIFIERS
+    | Create        => IDENTIFIERS
+    | Default       => None
+    | Device_Ptr    => IDENTIFIERS
+    | Num_Gangs     => integer_EXPRESSION
+    | Num_Workers   => integer_EXPRESSION
+    | Present       => IDENTIFIERS
+    | Vector_Length => integer_EXPRESSION
+    | Wait          => INTEGERS
+
+  IDENTIFIERS ::=
+    | IDENTIFIER
+    | (IDENTIFIER, IDENTIFIERS)
+
+  INTEGERS ::=
+    | integer_EXPRESSION
+    | (integer_EXPRESSION, INTEGERS)
+
+Requires the :switch:`-fopenacc` flag.
+
+Equivalent to the kernels directive of the OpenAcc standard. This pragma should
+be placed in loops.
+
+For more information about the effect of the clauses, see the OpenAcc
+specification.
+
+Pragma Acc_Data
+===============
+Syntax:
+
+.. code-block:: ada
+
+  pragma Acc_Data ([ ACC_DATA_CLAUSE [, ACC_DATA_CLAUSE...]]);
+
+  ACC_DATA_CLAUSE ::=
+      Copy          => IDENTIFIERS
+    | Copy_In       => IDENTIFIERS
+    | Copy_Out      => IDENTIFIERS
+    | Create        => IDENTIFIERS
+    | Device_Ptr    => IDENTIFIERS
+    | Present       => IDENTIFIERS
+
+Requires the :switch:`-fopenacc` flag.
+
+Equivalent to the ``data`` directive of the OpenAcc standard. This pragma
+should be placed in loops.
+
+For more information about the effect of the clauses, see the OpenAcc
+specification.
+
+
 Pragma Ada_83
 =============
 
@@ -218,6 +370,21 @@ Syntax:
 
 This configuration pragma is a synonym for pragma Ada_12 and has the
 same syntax and effect.
+
+Pragma Aggregate_Individually_Assign
+====================================
+
+Syntax:
+
+.. code-block:: ada
+
+  pragma Aggregate_Individually_Assign;
+
+Where possible, GNAT will store the binary representation of a record aggregate
+in memory for space and performance reasons. This configuration pragma changes
+this behavior so that record aggregates are instead always converted into
+individual assignment statements.
+
 
 Pragma Allow_Integer_Address
 ============================
@@ -396,7 +563,7 @@ Pragma Assertion_Policy
 
 Syntax::
 
-  pragma Assertion_Policy (CHECK | DISABLE | IGNORE);
+  pragma Assertion_Policy (CHECK | DISABLE | IGNORE | SUPPRESSIBLE);
 
   pragma Assertion_Policy (
       ASSERTION_KIND => POLICY_IDENTIFIER
@@ -567,7 +734,7 @@ Syntax:
 
 .. code-block:: ada
 
-  pragma Asynch_Readers [ (boolean_EXPRESSION) ];
+  pragma Async_Readers [ (boolean_EXPRESSION) ];
 
 For the semantics of this pragma, see the entry for aspect ``Async_Readers`` in
 the SPARK 2014 Reference Manual, section 7.1.2.
@@ -581,7 +748,7 @@ Syntax:
 
 .. code-block:: ada
 
-  pragma Asynch_Writers [ (boolean_EXPRESSION) ];
+  pragma Async_Writers [ (boolean_EXPRESSION) ];
 
 For the semantics of this pragma, see the entry for aspect ``Async_Writers`` in
 the SPARK 2014 Reference Manual, section 7.1.2.
@@ -1173,9 +1340,9 @@ are equivalent to
   pragma Postcondition (if C2 then Pred2);
 
 
-The precondition ensures that one and only one of the conditions is
+The precondition ensures that one and only one of the case guards is
 satisfied on entry to the subprogram.
-The postcondition ensures that for the condition that was True on entry,
+The postcondition ensures that for the case guard that was True on entry,
 the corrresponding consequence is True on exit. Other consequence expressions
 are not evaluated.
 
@@ -1190,13 +1357,13 @@ expressed as contract cases:
 The placement and visibility rules for ``Contract_Cases`` pragmas are
 identical to those described for preconditions and postconditions.
 
-The compiler checks that boolean expressions given in conditions and
-consequences are valid, where the rules for conditions are the same as
+The compiler checks that boolean expressions given in case guards and
+consequences are valid, where the rules for case guards are the same as
 the rule for an expression in ``Precondition`` and the rules for
 consequences are the same as the rule for an expression in
 ``Postcondition``. In particular, attributes ``'Old`` and
 ``'Result`` can only be used within consequence expressions.
-The condition for the last contract case may be ``others``, to denote
+The case guard for the last contract case may be ``others``, to denote
 any case not captured by the previous cases. The
 following is an example of use within a package spec:
 
@@ -1214,7 +1381,7 @@ following is an example of use within a package spec:
 
 
 The meaning of contract cases is that only one case should apply at each
-call, as determined by the corresponding condition evaluating to True,
+call, as determined by the corresponding case guard evaluating to True,
 and that the consequence for this case should hold when the subprogram
 returns.
 
@@ -1678,18 +1845,23 @@ Syntax:
   pragma Elaboration_Checks (Dynamic | Static);
 
 
-This is a configuration pragma that provides control over the
-elaboration model used by the compilation affected by the
-pragma.  If the parameter is ``Dynamic``,
-then the dynamic elaboration
-model described in the Ada Reference Manual is used, as though
-the *-gnatE* switch had been specified on the command
-line.  If the parameter is ``Static``, then the default GNAT static
-model is used.  This configuration pragma overrides the setting
-of the command line.  For full details on the elaboration models
-used by the GNAT compiler, see the chapter on elaboration order handling
-in the *GNAT User's Guide*.
+This is a configuration pragma which specifies the elaboration model to be
+used during compilation. For more information on the elaboration models of
+GNAT, consult the chapter on elaboration order handling in the *GNAT User's
+Guide*.
 
+The pragma may appear in the following contexts:
+
+* Configuration pragmas file
+
+* Prior to the context clauses of a compilation unit's initial declaration
+
+Any other placement of the pragma will result in a warning and the effects of
+the offending pragma will be ignored.
+
+If the pragma argument is ``Dynamic``, then the dynamic elaboration model is in
+effect. If the pragma argument is ``Static``, then the static elaboration model
+is in effect.
 
 Pragma Eliminate
 ================
@@ -2275,7 +2447,7 @@ with Import and Export pragmas.  There are two cases to consider:
   ``As_Is`` provides the normal default behavior in which the casing is
   taken from the string provided.
 
-This pragma may appear anywhere that a pragma is valid.  In particular, it
+This pragma may appear anywhere that a pragma is valid. In particular, it
 can be used as a configuration pragma in the :file:`gnat.adc` file, in which
 case it applies to all subsequent compilations, or it can be used as a program
 unit pragma, in which case it only applies to the current unit, or it can
@@ -2842,58 +3014,87 @@ Syntax:
 
 .. code-block:: ada
 
-  pragma Initialize_Scalars;
+  pragma Initialize_Scalars
+    [ ( TYPE_VALUE_PAIR {, TYPE_VALUE_PAIR} ) ];
+
+  TYPE_VALUE_PAIR ::=
+    SCALAR_TYPE => static_EXPRESSION
+
+  SCALAR_TYPE :=
+    Short_Float
+  | Float
+  | Long_Float
+  | Long_Long_Flat
+  | Signed_8
+  | Signed_16
+  | Signed_32
+  | Signed_64
+  | Unsigned_8
+  | Unsigned_16
+  | Unsigned_32
+  | Unsigned_64
 
 
-This pragma is similar to ``Normalize_Scalars`` conceptually but has
-two important differences.  First, there is no requirement for the pragma
-to be used uniformly in all units of a partition, in particular, it is fine
-to use this just for some or all of the application units of a partition,
-without needing to recompile the run-time library.
+This pragma is similar to ``Normalize_Scalars`` conceptually but has two
+important differences.
 
-In the case where some units are compiled with the pragma, and some without,
-then a declaration of a variable where the type is defined in package
-Standard or is locally declared will always be subject to initialization,
-as will any declaration of a scalar variable.  For composite variables,
-whether the variable is initialized may also depend on whether the package
-in which the type of the variable is declared is compiled with the pragma.
+First, there is no requirement for the pragma to be used uniformly in all units
+of a partition. In particular, it is fine to use this just for some or all of
+the application units of a partition, without needing to recompile the run-time
+library. In the case where some units are compiled with the pragma, and some
+without, then a declaration of a variable where the type is defined in package
+Standard or is locally declared will always be subject to initialization, as
+will any declaration of a scalar variable. For composite variables, whether the
+variable is initialized may also depend on whether the package in which the
+type of the variable is declared is compiled with the pragma.
 
-The other important difference is that you can control the value used
-for initializing scalar objects.  At bind time, you can select several
-options for initialization. You can
-initialize with invalid values (similar to Normalize_Scalars, though for
-Initialize_Scalars it is not always possible to determine the invalid
-values in complex cases like signed component fields with non-standard
-sizes). You can also initialize with high or
-low values, or with a specified bit pattern.  See the GNAT
-User's Guide for binder options for specifying these cases.
+The other important difference is that the programmer can control the value
+used for initializing scalar objects. This effect can be achieved in several
+different ways:
 
-This means that you can compile a program, and then without having to
-recompile the program, you can run it with different values being used
-for initializing otherwise uninitialized values, to test if your program
-behavior depends on the choice.  Of course the behavior should not change,
-and if it does, then most likely you have an incorrect reference to an
-uninitialized value.
+* At compile time, the programmer can specify the invalid value for a
+  particular family of scalar types using the optional arguments of the pragma.
 
-It is even possible to change the value at execution time eliminating even
-the need to rebind with a different switch using an environment variable.
-See the GNAT User's Guide for details.
+  The compile-time approach is intended to optimize the generated code for the
+  pragma, by possibly using fast operations such as ``memset``.
 
-Note that pragma ``Initialize_Scalars`` is particularly useful in
-conjunction with the enhanced validity checking that is now provided
-in GNAT, which checks for invalid values under more conditions.
-Using this feature (see description of the *-gnatV* flag in the
-GNAT User's Guide) in conjunction with
-pragma ``Initialize_Scalars``
-provides a powerful new tool to assist in the detection of problems
-caused by uninitialized variables.
+* At bind time, the programmer has several options:
 
-Note: the use of ``Initialize_Scalars`` has a fairly extensive
-effect on the generated code. This may cause your code to be
-substantially larger. It may also cause an increase in the amount
-of stack required, so it is probably a good idea to turn on stack
-checking (see description of stack checking in the GNAT
-User's Guide) when using this pragma.
+  * Initialization with invalid values (similar to Normalize_Scalars, though
+    for Initialize_Scalars it is not always possible to determine the invalid
+    values in complex cases like signed component fields with nonstandard
+    sizes).
+
+  * Initialization with high values.
+
+  * Initialization with low values.
+
+  * Initialization with a specific bit pattern.
+
+  See the GNAT User's Guide for binder options for specifying these cases.
+
+  The bind-time approach is intended to provide fast turnaround for testing
+  with different values, without having to recompile the program.
+
+* At execution time, the programmer can speify the invalid values using an
+  environment variable. See the GNAT User's Guide for details.
+
+  The execution-time approach is intended to provide fast turnaround for
+  testing with different values, without having to recompile and rebind the
+  program.
+
+Note that pragma ``Initialize_Scalars`` is particularly useful in conjunction
+with the enhanced validity checking that is now provided in GNAT, which checks
+for invalid values under more conditions. Using this feature (see description
+of the *-gnatV* flag in the GNAT User's Guide) in conjunction with pragma
+``Initialize_Scalars`` provides a powerful new tool to assist in the detection
+of problems caused by uninitialized variables.
+
+Note: the use of ``Initialize_Scalars`` has a fairly extensive effect on the
+generated code. This may cause your code to be substantially larger. It may
+also cause an increase in the amount of stack required, so it is probably a
+good idea to turn on stack checking (see description of stack checking in the
+GNAT User's Guide) when using this pragma.
 
 .. _Pragma-Initializes:
 
@@ -3463,6 +3664,24 @@ the implementation of protected operations must be implemented without locks.
 Compilation fails if the compiler cannot generate lock-free code for the
 operations.
 
+The current conditions required to support this pragma are:
+
+* Protected type declarations may not contain entries
+* Protected subprogram declarations may not have nonelementary parameters
+
+In addition, each protected subprogram body must satisfy:
+
+* May reference only one protected component
+* May not reference nonconstant entities outside the protected subprogram
+  scope.
+* May not contain address representation items, allocators, or quantified
+  expressions.
+* May not contain delay, goto, loop, or procedure-call statements.
+* May not contain exported and imported entities
+* May not dereferenced access values
+* Function calls and attribute references must be static
+
+
 Pragma Loop_Invariant
 =====================
 
@@ -3609,18 +3828,19 @@ Syntax:
   pragma Machine_Attribute (
        [Entity         =>] LOCAL_NAME,
        [Attribute_Name =>] static_string_EXPRESSION
-    [, [Info           =>] static_EXPRESSION] );
+    [, [Info           =>] static_EXPRESSION {, static_EXPRESSION}] );
 
 
 Machine-dependent attributes can be specified for types and/or
 declarations.  This pragma is semantically equivalent to
 :samp:`__attribute__(({attribute_name}))` (if ``info`` is not
 specified) or :samp:`__attribute__(({attribute_name(info})))`
-in GNU C, where *attribute_name* is recognized by the
-compiler middle-end or the ``TARGET_ATTRIBUTE_TABLE`` machine
-specific macro.  A string literal for the optional parameter ``info``
-is transformed into an identifier, which may make this pragma unusable
-for some attributes.
+or :samp:`__attribute__(({attribute_name(info,...})))` in GNU C,
+where *attribute_name* is recognized by the compiler middle-end
+or the ``TARGET_ATTRIBUTE_TABLE`` machine specific macro.  Note
+that a string literal for the optional parameter ``info`` or the
+following ones is transformed by default into an identifier,
+which may make this pragma unusable for some attributes.
 For further information see :title:`GNU Compiler Collection (GCC) Internals`.
 
 Pragma Main
@@ -3668,8 +3888,10 @@ Syntax::
 
 This pragma is used to specify the maximum callers per entry queue for
 individual protected entries and entry families. It accepts a single
-positive integer as a parameter and must appear after the declaration
-of an entry.
+integer (-1 or more) as a parameter and must appear after the declaration of an
+entry.
+
+A value of -1 represents no additional restriction on queue length.
 
 Pragma No_Body
 ==============
@@ -3693,6 +3915,20 @@ This is particularly useful during maintenance when a package is modified in
 such a way that a body needed before is no longer needed. The provision of a
 dummy body with a No_Body pragma ensures that there is no interference from
 earlier versions of the package body.
+
+.. _Pragma-No_Caching:
+
+Pragma No_Caching
+=================
+
+Syntax:
+
+.. code-block:: ada
+
+  pragma No_Caching [ (boolean_EXPRESSION) ];
+
+For the semantics of this pragma, see the entry for aspect ``No_Caching`` in
+the SPARK 2014 Reference Manual, section 7.1.2.
 
 Pragma No_Component_Reordering
 ==============================
@@ -3886,6 +4122,11 @@ Once the pragma has been given for a particular root tagged type, all subtypes
 and derived types of this type inherit the pragma automatically, so the effect
 applies to a complete hierarchy (this is necessary to deal with the class-wide
 dispatching versions of the stream routines).
+
+When pragmas ``Discard_Names`` and ``No_Tagged_Streams`` are simultaneously
+applied to a tagged type its Expanded_Name and External_Tag are initialized
+with empty strings. This is useful to avoid exposing entity names at binary
+level but has a negative impact on the debuggability of tagged types.
 
 Pragma Normalize_Scalars
 ========================
@@ -6603,13 +6844,17 @@ Syntax:
 This pragma specifies that the specified entity, which must be
 a variable declared in a library-level package, is to be marked as
 "Thread Local Storage" (``TLS``). On systems supporting this (which
-include Windows, Solaris, GNU/Linux and VxWorks 6), this causes each
+include Windows, Solaris, GNU/Linux, and VxWorks 6), this causes each
 thread (and hence each Ada task) to see a distinct copy of the variable.
 
-The variable may not have default initialization, and if there is
+The variable must not have default initialization, and if there is
 an explicit initialization, it must be either ``null`` for an
-access variable, or a static expression for a scalar variable.
-This provides a low level mechanism similar to that provided by
+access variable, a static expression for a scalar variable, or a fully
+static aggregate for a composite type, that is to say, an aggregate all
+of whose components are static, and which does not include packed or
+discriminated components.
+
+This provides a low-level mechanism similar to that provided by
 the ``Ada.Task_Attributes`` package, but much more efficient
 and is also useful in writing interface code that will interact
 with foreign threads.
@@ -7145,11 +7390,10 @@ methods can be used to enable validity checking for mode ``in`` and
 
 
 The form ALL_CHECKS activates all standard checks (its use is equivalent
-to the use of the :switch:`gnatva` switch.
+to the use of the :switch:`gnatVa` switch).
 
-The forms with ``Off`` and ``On``
-can be used to temporarily disable validity checks
-as shown in the following example:
+The forms with ``Off`` and ``On`` can be used to temporarily disable
+validity checks as shown in the following example:
 
 
 .. code-block:: ada
@@ -7160,6 +7404,7 @@ as shown in the following example:
   pragma Validity_Checks (On);  -- turn validity checks back on
   A := C;                       -- C will be validity checked
 
+.. _Pragma-Volatile:
 
 Pragma Volatile
 ===============
@@ -7239,18 +7484,21 @@ Syntax:
 
 
 This configuration pragma allows the programmer to specify a set
-of warnings that will be treated as errors. Any warning which
+of warnings that will be treated as errors. Any warning that
 matches the pattern given by the pragma argument will be treated
-as an error. This gives much more precise control that -gnatwe
-which treats all warnings as errors.
+as an error. This gives more precise control than -gnatwe,
+which treats warnings as errors.
 
-The pattern may contain asterisks, which match zero or more characters in
-the message. For example, you can use
-``pragma Warning_As_Error ("bits of*unused")`` to treat the warning
-message ``warning: 960 bits of "a" unused`` as an error. No other regular
-expression notations are permitted. All characters other than asterisk in
-these three specific cases are treated as literal characters in the match.
-The match is case insensitive, for example XYZ matches xyz.
+This pragma can apply to regular warnings (messages enabled by -gnatw)
+and to style warnings (messages that start with "(style)",
+enabled by -gnaty).
+
+The pattern may contain asterisks, which match zero or more characters
+in the message. For example, you can use ``pragma Warning_As_Error
+("bits of*unused")`` to treat the warning message ``warning: 960 bits of
+"a" unused`` as an error. All characters other than asterisk are treated
+as literal characters in the match. The match is case insensitive; for
+example XYZ matches xyz.
 
 Note that the pattern matches if it occurs anywhere within the warning
 message string (it is not necessary to put an asterisk at the start and
@@ -7445,6 +7693,10 @@ pragmas must appear in sequence:
 In this usage, the pattern string must match in the Off and On
 pragmas, and (if *-gnatw.w* is given) at least one matching
 warning must be suppressed.
+
+Note: if the ON form is not found, then the effect of the OFF form extends
+until the end of the file (pragma Warnings is purely textual, so its effect
+does not stop at the end of the enclosing scope).
 
 Note: to write a string that will match any warning, use the string
 ``"***"``. It will not work to use a single asterisk or two

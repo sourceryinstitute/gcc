@@ -1,5 +1,5 @@
 /* DDG - Data Dependence Graph implementation.
-   Copyright (C) 2004-2018 Free Software Foundation, Inc.
+   Copyright (C) 2004-2019 Free Software Foundation, Inc.
    Contributed by Ayal Zaks and Mustafa Hagog <zaks,mustafa@il.ibm.com>
 
 This file is part of GCC.
@@ -84,7 +84,7 @@ static bool
 mem_write_insn_p (rtx_insn *insn)
 {
   mem_ref_p = false;
-  note_stores (PATTERN (insn), mark_mem_store, NULL);
+  note_stores (insn, mark_mem_store, NULL);
   return mem_ref_p;
 }
 
@@ -215,7 +215,7 @@ create_ddg_dep_from_intra_loop_link (ddg_ptr g, ddg_node_ptr src_node,
         {
           int regno = REGNO (SET_DEST (set));
           df_ref first_def;
-          struct df_rd_bb_info *bb_info = DF_RD_BB_INFO (g->bb);
+	  class df_rd_bb_info *bb_info = DF_RD_BB_INFO (g->bb);
 
           first_def = df_bb_regno_first_def_find (g->bb, regno);
           gcc_assert (first_def);
@@ -288,17 +288,20 @@ add_cross_iteration_register_deps (ddg_ptr g, df_ref last_def)
 
   if (flag_checking && DF_REF_ID (last_def) != DF_REF_ID (first_def))
     {
-      struct df_rd_bb_info *bb_info = DF_RD_BB_INFO (g->bb);
+      class df_rd_bb_info *bb_info = DF_RD_BB_INFO (g->bb);
       gcc_assert (!bitmap_bit_p (&bb_info->gen, DF_REF_ID (first_def)));
     }
 
   /* Create inter-loop true dependences and anti dependences.  */
   for (r_use = DF_REF_CHAIN (last_def); r_use != NULL; r_use = r_use->next)
     {
-      rtx_insn *use_insn = DF_REF_INSN (r_use->ref);
-
-      if (BLOCK_FOR_INSN (use_insn) != g->bb)
+      if (DF_REF_BB (r_use->ref) != g->bb)
 	continue;
+
+      gcc_assert (!DF_REF_IS_ARTIFICIAL (r_use->ref)
+		  && DF_REF_INSN_INFO (r_use->ref) != NULL);
+
+      rtx_insn *use_insn = DF_REF_INSN (r_use->ref);
 
       /* ??? Do not handle uses with DF_REF_IN_NOTE notes.  */
       use_node = get_node_of_insn (g, use_insn);
@@ -366,7 +369,7 @@ static void
 build_inter_loop_deps (ddg_ptr g)
 {
   unsigned rd_num;
-  struct df_rd_bb_info *rd_bb_info;
+  class df_rd_bb_info *rd_bb_info;
   bitmap_iterator bi;
 
   rd_bb_info = DF_RD_BB_INFO (g->bb);
@@ -472,7 +475,7 @@ build_intra_loop_deps (ddg_ptr g)
 {
   int i;
   /* Hold the dependency analysis state during dependency calculations.  */
-  struct deps_desc tmp_deps;
+  class deps_desc tmp_deps;
   rtx_insn *head, *tail;
 
   /* Build the dependence information, using the sched_analyze function.  */

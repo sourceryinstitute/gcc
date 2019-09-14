@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2018, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2019, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -161,7 +161,7 @@ package Checks is
 
    procedure Activate_Range_Check (N : Node_Id);
    pragma Inline (Activate_Range_Check);
-   --  Sets Do_Range_Check flag in node N, and handles possible local raise
+   --  Sets Do_Range_Check flag in node N, and handles possible local raise.
    --  Always call this routine rather than calling Set_Do_Range_Check to
    --  set an explicit value of True, to ensure handling the local raise case.
 
@@ -310,14 +310,16 @@ package Checks is
    --  then OK is True on return, and Lo and Hi are set to a conservative
    --  estimate of the possible range of values of N. Thus if OK is True on
    --  return, the value of the subexpression N is known to lie in the range
-   --  Lo .. Hi (inclusive). If the expression is not of a discrete type, or
-   --  some kind of error condition is detected, then OK is False on exit, and
-   --  Lo/Hi are set to No_Uint. Thus the significance of OK being False on
-   --  return is that no useful information is available on the range of the
-   --  expression. Assume_Valid determines whether the processing is allowed to
-   --  assume that values are in range of their subtypes. If it is set to True,
-   --  then this assumption is valid, if False, then processing is done using
-   --  base types to allow invalid values.
+   --  Lo .. Hi (inclusive). For enumeration and character literals the values
+   --  returned are the Pos value in the relevant enumeration type. If the
+   --  expression is not of a discrete type, or some kind of error condition
+   --  is detected, then OK is False on exit, and Lo/Hi are set to No_Uint.
+   --  Thus the significance of OK being False on return is that no useful
+   --  information is available on the range of the expression. Assume_Valid
+   --  determines whether the processing is allowed to assume that values are
+   --  in range of their subtypes. If it is set to True, then this assumption
+   --  is valid, if False, then processing is done using base types to allow
+   --  invalid values.
 
    procedure Determine_Range_R
      (N            : Node_Id;

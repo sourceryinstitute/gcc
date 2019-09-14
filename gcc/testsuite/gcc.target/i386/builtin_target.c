@@ -38,6 +38,15 @@ check_intel_cpu_model (unsigned int family, unsigned int model,
 	      /* Silvermont.  */
 	      assert (__builtin_cpu_is ("silvermont"));
 	      break;
+	    case 0x5c:
+	    case 0x5f:
+	      /* Goldmont.  */
+	      assert (__builtin_cpu_is ("goldmont"));
+	      break;
+	    case 0x7a:
+	      /* Goldmont Plus.  */
+	      assert (__builtin_cpu_is ("goldmont-plus"));
+	      break;
 	    case 0x57:
 	      /* Knights Landing.  */
 	      assert (__builtin_cpu_is ("knl"));
@@ -99,10 +108,18 @@ check_intel_cpu_model (unsigned int family, unsigned int model,
 	      assert (__builtin_cpu_is ("skylake"));
 	      break;
 	    case 0x55:
-	      /* Skylake with AVX-512 support.  */
-	      assert (__builtin_cpu_is ("corei7"));
-	      assert (__builtin_cpu_is ("skylake-avx512"));
-	      break;
+	      {
+	        unsigned int eax, ebx, ecx, edx;
+	        __cpuid_count (7, 0, eax, ebx, ecx, edx);
+	        assert (__builtin_cpu_is ("corei7"));
+	        if (ecx & bit_AVX512VNNI)
+	          /* Cascade Lake.  */
+	          assert (__builtin_cpu_is ("cascadelake"));
+	        else
+	          /* Skylake with AVX-512 support.  */
+	          assert (__builtin_cpu_is ("skylake-avx512"));
+	        break;
+	      }
 	    case 0x66:
 	      /* Cannon Lake.  */
 	      assert (__builtin_cpu_is ("cannonlake"));
@@ -248,6 +265,10 @@ check_features (unsigned int ecx, unsigned int edx,
 	assert (__builtin_cpu_supports ("avx5124vnniw"));
       if (edx & bit_AVX5124FMAPS)
 	assert (__builtin_cpu_supports ("avx5124fmaps"));
+
+      __cpuid_count (7, 1, eax, ebx, ecx, edx);
+      if (eax & bit_AVX512BF16)
+	assert (__builtin_cpu_supports ("avx512bf16"));
     }
 
   /* Check cpuid level of extended features.  */

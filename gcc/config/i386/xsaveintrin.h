@@ -1,4 +1,4 @@
-/* Copyright (C) 2012-2018 Free Software Foundation, Inc.
+/* Copyright (C) 2012-2019 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -21,9 +21,9 @@
    see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    <http://www.gnu.org/licenses/>.  */
 
-/* #if !defined _X86INTRIN_H_INCLUDED && !defined _IMMINTRIN_H_INCLUDED */
-/* # error "Never use <xsaveintrin.h> directly; include <x86intrin.h> instead." */
-/* #endif */
+#if !defined _IMMINTRIN_H_INCLUDED
+# error "Never use <xsaveintrin.h> directly; include <immintrin.h> instead."
+#endif
 
 #ifndef _XSAVEINTRIN_H_INCLUDED
 #define _XSAVEINTRIN_H_INCLUDED
@@ -59,7 +59,7 @@ extern __inline long long
 __attribute__((__gnu_inline__, __always_inline__, __artificial__))
 _xgetbv (unsigned int __A)
 {
-  __builtin_ia32_xgetbv (__A);
+  return __builtin_ia32_xgetbv (__A);
 }
 
 #ifdef __x86_64__

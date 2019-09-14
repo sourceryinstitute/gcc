@@ -12,6 +12,7 @@ import (
 var goodCompilerFlags = [][]string{
 	{"-DFOO"},
 	{"-Dfoo=bar"},
+	{"-F/Qt"},
 	{"-I/"},
 	{"-I/etc/passwd"},
 	{"-I."},
@@ -57,11 +58,14 @@ var goodCompilerFlags = [][]string{
 	{"-I", "世界"},
 	{"-framework", "Chocolate"},
 	{"-x", "c"},
+	{"-v"},
 }
 
 var badCompilerFlags = [][]string{
 	{"-D@X"},
 	{"-D-X"},
+	{"-F@dir"},
+	{"-F-dir"},
 	{"-I@dir"},
 	{"-I-dir"},
 	{"-O@1"},
@@ -121,10 +125,16 @@ var goodLinkerFlags = [][]string{
 	{"-pthread"},
 	{"-Wl,-rpath,foo"},
 	{"-Wl,-rpath,$ORIGIN/foo"},
+	{"-Wl,-R", "/foo"},
+	{"-Wl,-R", "foo"},
+	{"-Wl,-R,foo"},
+	{"-Wl,--just-symbols=foo"},
+	{"-Wl,--just-symbols,foo"},
 	{"-Wl,--warn-error"},
 	{"-Wl,--no-warn-error"},
 	{"foo.so"},
 	{"_世界.dll"},
+	{"./x.o"},
 	{"libcgosotest.dylib"},
 	{"-F", "framework"},
 	{"-l", "."},
@@ -132,6 +142,7 @@ var goodLinkerFlags = [][]string{
 	{"-l", "世界"},
 	{"-L", "framework"},
 	{"-framework", "Chocolate"},
+	{"-v"},
 	{"-Wl,-framework", "-Wl,Chocolate"},
 	{"-Wl,-framework,Chocolate"},
 	{"-Wl,-unresolved-symbols=ignore-all"},
@@ -140,9 +151,6 @@ var goodLinkerFlags = [][]string{
 var badLinkerFlags = [][]string{
 	{"-DFOO"},
 	{"-Dfoo=bar"},
-	{"-O"},
-	{"-O2"},
-	{"-Osmall"},
 	{"-W"},
 	{"-Wall"},
 	{"-fobjc-arc"},
@@ -155,7 +163,6 @@ var badLinkerFlags = [][]string{
 	{"-fno-stack-xxx"},
 	{"-mstack-overflow"},
 	{"-mno-stack-overflow"},
-	{"-mmacosx-version"},
 	{"-mnop-fun-dllimport"},
 	{"-std=c99"},
 	{"-xc"},
@@ -195,6 +202,10 @@ var badLinkerFlags = [][]string{
 	{"-x", "--c"},
 	{"-x", "@obj"},
 	{"-Wl,-rpath,@foo"},
+	{"-Wl,-R,foo,bar"},
+	{"-Wl,-R,@foo"},
+	{"-Wl,--just-symbols,@foo"},
+	{"../x.o"},
 }
 
 func TestCheckLinkerFlags(t *testing.T) {

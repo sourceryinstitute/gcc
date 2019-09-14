@@ -1,5 +1,5 @@
 /* A representation of vector permutation indices.
-   Copyright (C) 2017-2018 Free Software Foundation, Inc.
+   Copyright (C) 2017-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -119,7 +119,7 @@ inline vec_perm_indices::element_type
 vec_perm_indices::clamp (element_type elt) const
 {
   element_type limit = input_nelts (), elem_within_input;
-  int input;
+  HOST_WIDE_INT input;
   if (!can_div_trunc_p (elt, limit, &input, &elem_within_input))
     return elt;
 

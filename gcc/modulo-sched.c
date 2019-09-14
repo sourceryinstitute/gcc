@@ -1,5 +1,5 @@
 /* Swing Modulo Scheduling implementation.
-   Copyright (C) 2004-2018 Free Software Foundation, Inc.
+   Copyright (C) 2004-2019 Free Software Foundation, Inc.
    Contributed by Ayal Zaks and Mustafa Hagog <zaks,mustafa@il.ibm.com>
 
 This file is part of GCC.
@@ -211,7 +211,7 @@ static int sms_order_nodes (ddg_ptr, int, int *, int *);
 static void set_node_sched_params (ddg_ptr);
 static partial_schedule_ptr sms_schedule_by_order (ddg_ptr, int, int, int *);
 static void permute_partial_schedule (partial_schedule_ptr, rtx_insn *);
-static void generate_prolog_epilog (partial_schedule_ptr, struct loop *,
+static void generate_prolog_epilog (partial_schedule_ptr, class loop *,
                                     rtx, rtx);
 static int calculate_stage_count (partial_schedule_ptr, int);
 static void calculate_must_precede_follow (ddg_node_ptr, int, int,
@@ -1124,7 +1124,7 @@ duplicate_insns_of_cycles (partial_schedule_ptr ps, int from_stage,
 
 /* Generate the instructions (including reg_moves) for prolog & epilog.  */
 static void
-generate_prolog_epilog (partial_schedule_ptr ps, struct loop *loop,
+generate_prolog_epilog (partial_schedule_ptr ps, class loop *loop,
                         rtx count_reg, rtx count_init)
 {
   int i;
@@ -1181,7 +1181,7 @@ generate_prolog_epilog (partial_schedule_ptr ps, struct loop *loop,
 /* Mark LOOP as software pipelined so the later
    scheduling passes don't touch it.  */
 static void
-mark_loop_unsched (struct loop *loop)
+mark_loop_unsched (class loop *loop)
 {
   unsigned i;
   basic_block *bbs = get_loop_body (loop);
@@ -1195,7 +1195,7 @@ mark_loop_unsched (struct loop *loop)
 /* Return true if all the BBs of the loop are empty except the
    loop header.  */
 static bool
-loop_single_full_bb_p (struct loop *loop)
+loop_single_full_bb_p (class loop *loop)
 {
   unsigned i;
   basic_block *bbs = get_loop_body (loop);
@@ -1251,7 +1251,7 @@ dump_insn_location (rtx_insn *insn)
 /* Return true if the loop is in its canonical form and false if not.
    i.e. SIMPLE_SMS_LOOP_P and have one preheader block, and single exit.  */
 static bool
-loop_canon_p (struct loop *loop)
+loop_canon_p (class loop *loop)
 {
 
   if (loop->inner || !loop_outer (loop))
@@ -1294,7 +1294,7 @@ loop_canon_p (struct loop *loop)
    make it one by splitting the first entry edge and
    redirecting the others to the new BB.  */
 static void
-canon_loop (struct loop *loop)
+canon_loop (class loop *loop)
 {
   edge e;
   edge_iterator i;
@@ -1346,7 +1346,7 @@ sms_schedule (void)
   int maxii, max_asap;
   partial_schedule_ptr ps;
   basic_block bb = NULL;
-  struct loop *loop;
+  class loop *loop;
   basic_block condition_bb = NULL;
   edge latch_edge;
   HOST_WIDE_INT trip_count, max_trip_count;
@@ -1449,10 +1449,6 @@ sms_schedule (void)
                   fprintf (dump_file, "%" PRId64 "max %" PRId64,
                            (int64_t) trip_count, (int64_t) max_trip_count);
                   fprintf (dump_file, "\n");
-	      	  fprintf (dump_file, "SMS profile-sum-max ");
-	      	  fprintf (dump_file, "%" PRId64,
-	          	   (int64_t) profile_info->sum_max);
-	      	  fprintf (dump_file, "\n");
 	    	}
 	    }
           continue;
@@ -1567,10 +1563,6 @@ sms_schedule (void)
 	      fprintf (dump_file, "%" PRId64,
 	               (int64_t) bb->count.to_gcov_type ());
 	      fprintf (dump_file, "\n");
-	      fprintf (dump_file, "SMS profile-sum-max ");
-	      fprintf (dump_file, "%" PRId64,
-	               (int64_t) profile_info->sum_max);
-	      fprintf (dump_file, "\n");
 	    }
 	  fprintf (dump_file, "SMS doloop\n");
 	  fprintf (dump_file, "SMS built-ddg %d\n", g->num_nodes);
@@ -1605,6 +1597,7 @@ sms_schedule (void)
       mii = 1; /* Need to pass some estimate of mii.  */
       rec_mii = sms_order_nodes (g, mii, node_order, &max_asap);
       mii = MAX (res_MII (g), rec_mii);
+      mii = MAX (mii, 1);
       maxii = MAX (max_asap, MAXII_FACTOR * mii);
 
       if (dump_file)
@@ -3004,9 +2997,7 @@ ps_insn_find_column (partial_schedule_ptr ps, ps_insn_ptr ps_i,
             last_must_precede = next_ps_i;
         }
       /* The closing branch must be the last in the row.  */
-      if (must_precede 
-	  && bitmap_bit_p (must_precede, next_ps_i->id)
-	  && JUMP_P (ps_rtl_insn (ps, next_ps_i->id)))
+      if (JUMP_P (ps_rtl_insn (ps, next_ps_i->id)))
 	return false;
              
        last_in_row = next_ps_i;

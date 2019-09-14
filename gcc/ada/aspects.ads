@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 2010-2018, Free Software Foundation, Inc.         --
+--          Copyright (C) 2010-2019, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -59,7 +59,7 @@
 --    5. If the semantic analysis of expressions/names in the aspect should not
 --       occur at the point the aspect is defined, add code in the adequate
 --       semantic analysis procedure for the aspect. For example, this is the
---       case for aspects Pre and Post on subprograms, which are pre-analyzed
+--       case for aspects Pre and Post on subprograms, which are preanalyzed
 --       at the end of the declaration list to which the subprogram belongs,
 --       and fully analyzed (possibly with expansion) during the semantic
 --       analysis of subprogram bodies.
@@ -116,7 +116,10 @@ package Aspects is
       Aspect_Link_Name,
       Aspect_Linker_Section,                -- GNAT
       Aspect_Machine_Radix,
+      Aspect_Max_Entry_Queue_Depth,         -- GNAT
+      Aspect_Max_Entry_Queue_Length,
       Aspect_Max_Queue_Length,              -- GNAT
+      Aspect_No_Caching,                    -- GNAT
       Aspect_Object_Size,                   -- GNAT
       Aspect_Obsolescent,                   -- GNAT
       Aspect_Output,
@@ -250,6 +253,8 @@ package Aspects is
       Aspect_Inline_Always              => True,
       Aspect_Invariant                  => True,
       Aspect_Lock_Free                  => True,
+      Aspect_Max_Entry_Queue_Depth      => True,
+      Aspect_Max_Entry_Queue_Length     => True,
       Aspect_Max_Queue_Length           => True,
       Aspect_Object_Size                => True,
       Aspect_Persistent_BSS             => True,
@@ -273,6 +278,20 @@ package Aspects is
       Aspect_Value_Size                 => True,
       Aspect_Volatile_Function          => True,
       Aspect_Warnings                   => True,
+      others                            => False);
+
+   --  The following array indicates aspects that specify operational
+   --  characteristics, and thus are view-specific. Representation
+   --  aspects break privacy, as they are needed during expansion and
+   --  code generation.
+   --  List is currently incomplete ???
+
+   Operational_Aspect : constant array (Aspect_Id) of Boolean :=
+     (Aspect_Constant_Indexing          => True,
+      Aspect_Default_Iterator           => True,
+      Aspect_Iterator_Element           => True,
+      Aspect_Iterable                   => True,
+      Aspect_Variable_Indexing          => True,
       others                            => False);
 
    --  The following array indicates aspects for which multiple occurrences of
@@ -358,7 +377,10 @@ package Aspects is
       Aspect_Link_Name                  => Expression,
       Aspect_Linker_Section             => Expression,
       Aspect_Machine_Radix              => Expression,
+      Aspect_Max_Entry_Queue_Depth      => Expression,
+      Aspect_Max_Entry_Queue_Length     => Expression,
       Aspect_Max_Queue_Length           => Expression,
+      Aspect_No_Caching                 => Optional_Expression,
       Aspect_Object_Size                => Expression,
       Aspect_Obsolescent                => Optional_Expression,
       Aspect_Output                     => Name,
@@ -467,7 +489,10 @@ package Aspects is
       Aspect_Linker_Section               => Name_Linker_Section,
       Aspect_Lock_Free                    => Name_Lock_Free,
       Aspect_Machine_Radix                => Name_Machine_Radix,
+      Aspect_Max_Entry_Queue_Depth        => Name_Max_Entry_Queue_Depth,
+      Aspect_Max_Entry_Queue_Length       => Name_Max_Entry_Queue_Length,
       Aspect_Max_Queue_Length             => Name_Max_Queue_Length,
+      Aspect_No_Caching                   => Name_No_Caching,
       Aspect_No_Elaboration_Code_All      => Name_No_Elaboration_Code_All,
       Aspect_No_Inline                    => Name_No_Inline,
       Aspect_No_Return                    => Name_No_Return,
@@ -743,7 +768,10 @@ package Aspects is
       Aspect_Import                       => Never_Delay,
       Aspect_Initial_Condition            => Never_Delay,
       Aspect_Initializes                  => Never_Delay,
+      Aspect_Max_Entry_Queue_Depth        => Never_Delay,
+      Aspect_Max_Entry_Queue_Length       => Never_Delay,
       Aspect_Max_Queue_Length             => Never_Delay,
+      Aspect_No_Caching                   => Never_Delay,
       Aspect_No_Elaboration_Code_All      => Never_Delay,
       Aspect_No_Tagged_Streams            => Never_Delay,
       Aspect_Obsolescent                  => Never_Delay,

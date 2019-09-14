@@ -1,5 +1,5 @@
 /* HSAIL and BRIG related macros and definitions.
-   Copyright (C) 2013-2018 Free Software Foundation, Inc.
+   Copyright (C) 2013-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -55,8 +55,9 @@ class hsa_bb;
 /* Class representing an input argument, output argument (result) or a
    variable, that will eventually end up being a symbol directive.  */
 
-struct hsa_symbol
+class hsa_symbol
 {
+public:
   /* Constructor.  */
   hsa_symbol (BrigType16_t type, BrigSegment8_t segment,
 	      BrigLinkage8_t linkage, bool global_scope_p = false,
@@ -1067,7 +1068,7 @@ private:
 static inline hsa_bb *
 hsa_bb_for_bb (basic_block bb)
 {
-  return (struct hsa_bb *) bb->aux;
+  return (class hsa_bb *) bb->aux;
 }
 
 /* Class for hashing local hsa_symbols.  */
@@ -1149,14 +1150,14 @@ public:
   hash_map <tree, hsa_symbol *> m_string_constants_map;
 
   /* Vector of pointers to spill symbols.  */
-  vec <struct hsa_symbol *> m_spill_symbols;
+  vec <class hsa_symbol *> m_spill_symbols;
 
   /* Vector of pointers to global variables and transformed string constants
      that are used by the function.  */
-  vec <struct hsa_symbol *> m_global_symbols;
+  vec <class hsa_symbol *> m_global_symbols;
 
   /* Private function artificial variables.  */
-  vec <struct hsa_symbol *> m_private_variables;
+  vec <class hsa_symbol *> m_private_variables;
 
   /* Vector of called function declarations.  */
   vec <tree> m_called_functions;
@@ -1208,13 +1209,14 @@ public:
 
 enum hsa_function_kind
 {
-  HSA_NONE,
+  HSA_INVALID,
   HSA_KERNEL,
   HSA_FUNCTION
 };
 
-struct hsa_function_summary
+class hsa_function_summary
 {
+public:
   /* Default constructor.  */
   hsa_function_summary ();
 
@@ -1234,7 +1236,7 @@ struct hsa_function_summary
 };
 
 inline
-hsa_function_summary::hsa_function_summary (): m_kind (HSA_NONE),
+hsa_function_summary::hsa_function_summary (): m_kind (HSA_INVALID),
   m_bound_function (NULL), m_gpu_implementation_p (false)
 {
 }
@@ -1244,7 +1246,10 @@ class hsa_summary_t: public function_summary <hsa_function_summary *>
 {
 public:
   hsa_summary_t (symbol_table *table):
-    function_summary<hsa_function_summary *> (table) { }
+    function_summary<hsa_function_summary *> (table)
+  {
+    disable_insertion_hook ();
+  }
 
   /* Couple GPU and HOST as gpu-specific and host-specific implementation of
      the same function.  KIND determines whether GPU is a host-invokable kernel
@@ -1313,7 +1318,7 @@ hsa_internal_fn_hasher::equal (const value_type a, const compare_type b)
 }
 
 /* in hsa-common.c */
-extern struct hsa_function_representation *hsa_cfun;
+extern class hsa_function_representation *hsa_cfun;
 extern hash_map <tree, vec <const char *> *> *hsa_decl_kernel_dependencies;
 extern hsa_summary_t *hsa_summaries;
 extern hsa_symbol *hsa_num_threads;
@@ -1408,8 +1413,7 @@ hsa_gpu_implementation_p (tree decl)
     return false;
 
   hsa_function_summary *s = hsa_summaries->get (cgraph_node::get_create (decl));
-
-  return s->m_gpu_implementation_p;
+  return s != NULL && s->m_gpu_implementation_p;
 }
 
 #endif /* HSA_H */

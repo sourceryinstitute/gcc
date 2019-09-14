@@ -1,6 +1,6 @@
 // Helpers for quoted stream manipulators -*- C++ -*-
 
-// Copyright (C) 2013-2018 Free Software Foundation, Inc.
+// Copyright (C) 2013-2019 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -64,6 +64,24 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	_CharT _M_escape;
       };
 
+#if __cplusplus >= 201703L
+    template<typename _CharT, typename _Traits>
+      struct _Quoted_string<basic_string_view<_CharT, _Traits>, _CharT>
+      {
+	_Quoted_string(basic_string_view<_CharT, _Traits> __str,
+		       _CharT __del, _CharT __esc)
+	: _M_string(__str), _M_delim{__del}, _M_escape{__esc}
+	{ }
+
+	_Quoted_string&
+	operator=(_Quoted_string&) = delete;
+
+	basic_string_view<_CharT, _Traits> _M_string;
+	_CharT _M_delim;
+	_CharT _M_escape;
+      };
+#endif // C++17
+
     /**
      * @brief Inserter for quoted strings.
      *
@@ -101,7 +119,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       {
 	std::basic_ostringstream<_CharT, _Traits> __ostr;
 	__ostr << __str._M_delim;
-	for (auto& __c : __str._M_string)
+	for (auto __c : __str._M_string)
 	  {
 	    if (__c == __str._M_delim || __c == __str._M_escape)
 	      __ostr << __str._M_escape;

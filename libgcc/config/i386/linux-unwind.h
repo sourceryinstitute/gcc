@@ -1,5 +1,5 @@
 /* DWARF2 EH unwinding support for AMD x86-64 and x86.
-   Copyright (C) 2004-2018 Free Software Foundation, Inc.
+   Copyright (C) 2004-2019 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -23,7 +23,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 <http://www.gnu.org/licenses/>.  */
 
 /* Unwind shadow stack for -fcf-protection -mshstk.  */
-#if defined __SHSTK__ && defined __CET__
+#if defined __SHSTK__ && defined __CET__ && (__CET__ & 2) != 0
 # include "config/i386/shadow-stack-unwind.h"
 #endif
 

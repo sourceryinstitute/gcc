@@ -1,5 +1,5 @@
 /* Data references and dependences detectors.
-   Copyright (C) 2003-2018 Free Software Foundation, Inc.
+   Copyright (C) 2003-2019 Free Software Foundation, Inc.
    Contributed by Sebastian Pop <pop@cri.ensmp.fr>
 
 This file is part of GCC.
@@ -23,6 +23,7 @@ along with GCC; see the file COPYING3.  If not see
 
 #include "graphds.h"
 #include "tree-chrec.h"
+#include "opt-problem.h"
 
 /*
   innermost_loop_behavior describes the evolution of the address of the memory
@@ -137,7 +138,8 @@ struct dr_alias
    space. A vector space is a set that is closed under vector addition
    and scalar multiplication.  In this vector space, an element is a list of
    integers.  */
-typedef int *lambda_vector;
+typedef HOST_WIDE_INT lambda_int;
+typedef lambda_int *lambda_vector;
 
 /* An integer matrix.  A matrix consists of m vectors of length n (IE
    all vectors are the same length).  */
@@ -201,8 +203,9 @@ typedef struct data_reference *data_reference_p;
    including the data ref itself and the segment length for aliasing
    checks.  This is used to merge alias checks.  */
 
-struct dr_with_seg_len
+class dr_with_seg_len
 {
+public:
   dr_with_seg_len (data_reference_p d, tree len, unsigned HOST_WIDE_INT size,
 		   unsigned int a)
     : dr (d), seg_len (len), access_size (size), align (a) {}
@@ -222,8 +225,9 @@ struct dr_with_seg_len
 /* This struct contains two dr_with_seg_len objects with aliasing data
    refs.  Two comparisons are generated from them.  */
 
-struct dr_with_seg_len_pair_t
+class dr_with_seg_len_pair_t
 {
+public:
   dr_with_seg_len_pair_t (const dr_with_seg_len& d1,
 			       const dr_with_seg_len& d2)
     : first (d1), second (d2) {}
@@ -345,10 +349,6 @@ struct data_dependence_relation
   /* The classic distance vector.  */
   vec<lambda_vector> dist_vects;
 
-  /* An index in loop_nest for the innermost loop that varies for
-     this data dependence relation.  */
-  unsigned inner_loop;
-
   /* Is the dependence reversed with respect to the lexicographic order?  */
   bool reversed_p;
 
@@ -404,7 +404,6 @@ typedef struct data_dependence_relation *ddr_p;
 /* The size of the direction/distance vectors: the number of loops in
    the loop nest.  */
 #define DDR_NB_LOOPS(DDR) (DDR_LOOP_NEST (DDR).length ())
-#define DDR_INNER_LOOP(DDR) (DDR)->inner_loop
 #define DDR_SELF_REFERENCE(DDR) (DDR)->self_reference_p
 
 #define DDR_DIST_VECTS(DDR) ((DDR)->dist_vects)
@@ -421,8 +420,9 @@ typedef struct data_dependence_relation *ddr_p;
 #define DDR_COULD_BE_INDEPENDENT_P(DDR) (DDR)->could_be_independent_p
 
 
-bool dr_analyze_innermost (innermost_loop_behavior *, tree, struct loop *);
-extern bool compute_data_dependences_for_loop (struct loop *, bool,
+opt_result dr_analyze_innermost (innermost_loop_behavior *, tree,
+				 class loop *, const gimple *);
+extern bool compute_data_dependences_for_loop (class loop *, bool,
 					       vec<loop_p> *,
 					       vec<data_reference_p> *,
 					       vec<ddr_p> *);
@@ -443,15 +443,15 @@ extern void free_dependence_relation (struct data_dependence_relation *);
 extern void free_dependence_relations (vec<ddr_p> );
 extern void free_data_ref (data_reference_p);
 extern void free_data_refs (vec<data_reference_p> );
-extern bool find_data_references_in_stmt (struct loop *, gimple *,
-					  vec<data_reference_p> *);
+extern opt_result find_data_references_in_stmt (class loop *, gimple *,
+						vec<data_reference_p> *);
 extern bool graphite_find_data_references_in_stmt (edge, loop_p, gimple *,
 						   vec<data_reference_p> *);
-tree find_data_references_in_loop (struct loop *, vec<data_reference_p> *);
+tree find_data_references_in_loop (class loop *, vec<data_reference_p> *);
 bool loop_nest_has_data_refs (loop_p loop);
 struct data_reference *create_data_ref (edge, loop_p, tree, gimple *, bool,
 					bool);
-extern bool find_loop_nest (struct loop *, vec<loop_p> *);
+extern bool find_loop_nest (class loop *, vec<loop_p> *);
 extern struct data_dependence_relation *initialize_data_dependence_relation
      (struct data_reference *, struct data_reference *, vec<loop_p>);
 extern void compute_affine_dependence (struct data_dependence_relation *,
@@ -460,7 +460,7 @@ extern void compute_self_dependence (struct data_dependence_relation *);
 extern bool compute_all_dependences (vec<data_reference_p> ,
 				     vec<ddr_p> *,
 				     vec<loop_p>, bool);
-extern tree find_data_references_in_bb (struct loop *, basic_block,
+extern tree find_data_references_in_bb (class loop *, basic_block,
                                         vec<data_reference_p> *);
 extern unsigned int dr_alignment (innermost_loop_behavior *);
 extern tree get_base_for_alignment (tree, unsigned int *);
@@ -475,15 +475,15 @@ dr_alignment (data_reference *dr)
 }
 
 extern bool dr_may_alias_p (const struct data_reference *,
-			    const struct data_reference *, bool);
+			    const struct data_reference *, class loop *);
 extern bool dr_equal_offsets_p (struct data_reference *,
                                 struct data_reference *);
 
-extern bool runtime_alias_check_p (ddr_p, struct loop *, bool);
+extern opt_result runtime_alias_check_p (ddr_p, class loop *, bool);
 extern int data_ref_compare_tree (tree, tree);
 extern void prune_runtime_alias_test_list (vec<dr_with_seg_len_pair_t> *,
 					   poly_uint64);
-extern void create_runtime_alias_checks (struct loop *,
+extern void create_runtime_alias_checks (class loop *,
 					 vec<dr_with_seg_len_pair_t> *, tree*);
 extern tree dr_direction_indicator (struct data_reference *);
 extern tree dr_zero_step_indicator (struct data_reference *);
@@ -574,15 +574,14 @@ ddr_dependence_level (ddr_p ddr)
 static inline int
 index_in_loop_nest (int var, vec<loop_p> loop_nest)
 {
-  struct loop *loopi;
+  class loop *loopi;
   int var_index;
 
-  for (var_index = 0; loop_nest.iterate (var_index, &loopi);
-       var_index++)
+  for (var_index = 0; loop_nest.iterate (var_index, &loopi); var_index++)
     if (loopi->num == var)
-      break;
+      return var_index;
 
-  return var_index;
+  gcc_unreachable ();
 }
 
 /* Returns true when the data reference DR the form "A[i] = ..."
@@ -609,11 +608,11 @@ void split_constant_offset (tree , tree *, tree *);
 
 /* Compute the greatest common divisor of a VECTOR of SIZE numbers.  */
 
-static inline int
+static inline lambda_int
 lambda_vector_gcd (lambda_vector vector, int size)
 {
   int i;
-  int gcd1 = 0;
+  lambda_int gcd1 = 0;
 
   if (size > 0)
     {
@@ -630,7 +629,7 @@ static inline lambda_vector
 lambda_vector_new (int size)
 {
   /* ???  We shouldn't abuse the GC allocator here.  */
-  return ggc_cleared_vec_alloc<int> (size);
+  return ggc_cleared_vec_alloc<lambda_int> (size);
 }
 
 /* Clear out vector VEC1 of length SIZE.  */
@@ -684,7 +683,7 @@ lambda_matrix_new (int m, int n, struct obstack *lambda_obstack)
   mat = XOBNEWVEC (lambda_obstack, lambda_vector, m);
 
   for (i = 0; i < m; i++)
-    mat[i] = XOBNEWVEC (lambda_obstack, int, n);
+    mat[i] = XOBNEWVEC (lambda_obstack, lambda_int, n);
 
   return mat;
 }

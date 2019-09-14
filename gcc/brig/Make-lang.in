@@ -1,7 +1,7 @@
 # Make-lang.in -- Top level -*- makefile -*- fragment for gcc BRIG (HSAIL)
 # frontend.
 
-# Copyright (C) 2015-2018 Free Software Foundation, Inc.
+# Copyright (C) 2015-2019 Free Software Foundation, Inc.
 
 # This file is part of GCC.
 
@@ -148,6 +148,9 @@ brig.srcman: doc/gccbrig.1
 
 lang_checks += check-brig
 
+# No brig-specific selftests
+selftest-brig:
+
 # Install hooks.
 
 brig.install-common: installdirs
@@ -239,8 +242,7 @@ brig.stagefeedback: stagefeedback-start
 CFLAGS-brig/brig-lang.o += -DDEFAULT_TARGET_VERSION=\"$(version)\" \
 	-DDEFAULT_TARGET_MACHINE=\"$(target_noncanonical)\"
 
-BRIGINCLUDES = -I $(srcdir)/brig -I ${HOME}/local/include \
-	-I $(srcdir)/brig/brigfrontend
+BRIGINCLUDES = -I $(srcdir)/brig -I $(srcdir)/brig/brigfrontend
 
 brig/brig-machine.o: brig/brigfrontend/brig-machine.c
 	$(COMPILE) $(BRIGINCLUDES) $<

@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1999-2018, Free Software Foundation, Inc.         --
+--          Copyright (C) 1999-2019, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -443,7 +443,7 @@ package body GNAT.Command_Line is
 
       Parser.Current_Argument := Parser.Current_Argument + 1;
 
-      --  Could it be a file name with wild cards to expand?
+      --  Could it be a file name with wildcards to expand?
 
       if Do_Expansion then
          declare
@@ -753,7 +753,8 @@ package body GNAT.Command_Line is
 
             Parser.Current_Index := End_Index + 1;
 
-            raise Invalid_Switch;
+            raise Invalid_Switch with
+              "Unrecognized option '" & Full_Switch (Parser) & ''';
          end if;
 
          End_Index := Parser.Current_Index + Max_Length - 1;
@@ -883,7 +884,8 @@ package body GNAT.Command_Line is
                      Last    => Arg'Last,
                      Extra   => Parser.Switch_Character);
                   Parser.Current_Index := Arg'Last + 1;
-                  raise Invalid_Switch;
+                  raise Invalid_Switch with
+                    "Unrecognized option '" & Full_Switch (Parser) & ''';
                end if;
          end case;
 
@@ -1470,6 +1472,29 @@ package body GNAT.Command_Line is
          Initialize_Switch_Def
            (Def, Switch, Long_Switch, Help, Section, Argument);
          Def.String_Output  := Output.all'Unchecked_Access;
+         Add (Config, Def);
+      end if;
+   end Define_Switch;
+
+   -------------------
+   -- Define_Switch --
+   -------------------
+
+   procedure Define_Switch
+     (Config      : in out Command_Line_Configuration;
+      Callback    : not null Value_Callback;
+      Switch      : String := "";
+      Long_Switch : String := "";
+      Help        : String := "";
+      Section     : String := "";
+      Argument    : String := "ARG")
+   is
+      Def : Switch_Definition (Switch_Callback);
+   begin
+      if Switch /= "" or else Long_Switch /= "" then
+         Initialize_Switch_Def
+           (Def, Switch, Long_Switch, Help, Section, Argument);
+         Def.Callback := Callback;
          Add (Config, Def);
       end if;
    end Define_Switch;
@@ -3342,7 +3367,8 @@ package body GNAT.Command_Line is
      (Config      : Command_Line_Configuration;
       Callback    : Switch_Handler := null;
       Parser      : Opt_Parser := Command_Line_Parser;
-      Concatenate : Boolean := True)
+      Concatenate : Boolean := True;
+      Quiet       : Boolean := False)
    is
       Local_Config    : Command_Line_Configuration := Config;
       Getopt_Switches : String_Access;
@@ -3402,6 +3428,10 @@ package body GNAT.Command_Line is
                   Free (Local_Config.Switches (Index).String_Output.all);
                   Local_Config.Switches (Index).String_Output.all :=
                     new String'(Parameter);
+                  return;
+
+               when Switch_Callback =>
+                  Local_Config.Switches (Index).Callback (Switch, Parameter);
                   return;
             end case;
          end if;
@@ -3471,7 +3501,7 @@ package body GNAT.Command_Line is
 
       for S in Local_Config.Switches'Range loop
          case Local_Config.Switches (S).Typ is
-            when Switch_Untyped =>
+            when Switch_Untyped | Switch_Callback =>
                null;   --  Nothing to do
 
             when Switch_Boolean =>
@@ -3548,12 +3578,14 @@ package body GNAT.Command_Line is
 
          --  Message inspired by "ls" on Unix
 
-         Put_Line (Standard_Error,
-                   Base_Name (Ada.Command_Line.Command_Name)
-                   & ": unrecognized option '"
-                   & Full_Switch (Parser)
-                   & "'");
-         Try_Help;
+         if not Quiet then
+            Put_Line (Standard_Error,
+                      Base_Name (Ada.Command_Line.Command_Name)
+                      & ": unrecognized option '"
+                      & Full_Switch (Parser)
+                      & "'");
+            Try_Help;
+         end if;
 
          raise;
 

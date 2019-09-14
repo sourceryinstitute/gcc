@@ -1,5 +1,5 @@
 ;; Code and mode itertator and attribute definitions for the ARM backend
-;; Copyright (C) 2010-2018 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2019 Free Software Foundation, Inc.
 ;; Contributed by ARM Ltd.
 ;;
 ;; This file is part of GCC.
@@ -24,9 +24,9 @@
 ;;----------------------------------------------------------------------------
 
 ;; A list of modes that are exactly 64 bits in size. This is used to expand
-;; some splits that are the same for all modes when operating on ARM 
+;; some splits that are the same for all modes when operating on ARM
 ;; registers.
-(define_mode_iterator ANY64 [DI DF V8QI V4HI V2SI V2SF])
+(define_mode_iterator ANY64 [DI DF V8QI V4HI V4HF V2SI V2SF])
 
 (define_mode_iterator ANY128 [V2DI V2DF V16QI V8HI V4SI V4SF])
 
@@ -123,6 +123,13 @@
 (define_mode_iterator VF [(V4HF "TARGET_NEON_FP16INST")
 			   (V8HF "TARGET_NEON_FP16INST") V2SF V4SF])
 
+;; Double vector modes.
+(define_mode_iterator VDF [V2SF V4HF])
+
+;; Quad vector Float modes with half/single elements.
+(define_mode_iterator VQ_HSF [V8HF V4SF])
+
+
 ;; All supported vector modes (except those with 64-bit integer elements).
 (define_mode_iterator VDQW [V8QI V16QI V4HI V8HI V2SI V4SI V2SF V4SF])
 
@@ -178,6 +185,9 @@
 
 ;; Modes with 8-bit elements.
 (define_mode_iterator VE [V8QI V16QI])
+
+;; V2DI only (for use with @ patterns).
+(define_mode_iterator V2DI_ONLY [V2DI])
 
 ;; Modes with 64-bit elements only.
 (define_mode_iterator V64 [DI V2DI])
@@ -334,6 +344,8 @@
 
 (define_int_iterator VSUBHN [UNSPEC_VSUBHN UNSPEC_VRSUBHN])
 
+(define_int_iterator VABAL [UNSPEC_VABAL_S UNSPEC_VABAL_U])
+
 (define_int_iterator VABD [UNSPEC_VABD_S UNSPEC_VABD_U])
 
 (define_int_iterator VABDL [UNSPEC_VABDL_S UNSPEC_VABDL_U])
@@ -404,10 +416,11 @@
 (define_int_iterator CRC [UNSPEC_CRC32B UNSPEC_CRC32H UNSPEC_CRC32W
                           UNSPEC_CRC32CB UNSPEC_CRC32CH UNSPEC_CRC32CW])
 
-(define_int_iterator CRYPTO_UNARY [UNSPEC_AESMC UNSPEC_AESIMC])
+(define_int_iterator CRYPTO_AESMC [UNSPEC_AESMC UNSPEC_AESIMC])
 
-(define_int_iterator CRYPTO_BINARY [UNSPEC_AESD UNSPEC_AESE
-                                    UNSPEC_SHA1SU1 UNSPEC_SHA256SU0])
+(define_int_iterator CRYPTO_AES [UNSPEC_AESD UNSPEC_AESE])
+
+(define_int_iterator CRYPTO_BINARY [UNSPEC_SHA1SU1 UNSPEC_SHA256SU0])
 
 (define_int_iterator CRYPTO_TERNARY [UNSPEC_SHA1SU0 UNSPEC_SHA256H
                                      UNSPEC_SHA256H2 UNSPEC_SHA256SU1])
@@ -422,6 +435,9 @@
 (define_int_iterator DOTPROD [UNSPEC_DOT_S UNSPEC_DOT_U])
 
 (define_int_iterator VFMLHALVES [UNSPEC_VFML_LO UNSPEC_VFML_HI])
+
+(define_int_iterator VCADD [UNSPEC_VCADD90 UNSPEC_VCADD270])
+(define_int_iterator VCMLA [UNSPEC_VCMLA UNSPEC_VCMLA90 UNSPEC_VCMLA180 UNSPEC_VCMLA270])
 
 ;;----------------------------------------------------------------------------
 ;; Mode attributes
@@ -725,8 +741,8 @@
 (define_mode_attr qhs_extenddi_op [(SI "s_register_operand")
 				   (HI "nonimmediate_operand")
 				   (QI "arm_reg_or_extendqisi_mem_op")])
-(define_mode_attr qhs_extenddi_cstr [(SI "r,0,r,r,r") (HI "r,0,rm,rm,r") (QI "r,0,rUq,rm,r")])
-(define_mode_attr qhs_zextenddi_cstr [(SI "r,0,r,r") (HI "r,0,rm,r") (QI "r,0,rm,r")])
+(define_mode_attr qhs_extenddi_cstr [(SI "0,r,r") (HI "0,rm,rm") (QI "0,rUq,rm")])
+(define_mode_attr qhs_zextenddi_cstr [(SI "0,r") (HI "0,rm") (QI "0,rm")])
 
 ;; Mode attributes used for fixed-point support.
 (define_mode_attr qaddsub_suf [(V4UQQ "8") (V2UHQ "16") (UQQ "8") (UHQ "16")
@@ -741,7 +757,7 @@
 (define_mode_attr F_constraint [(SF "t") (DF "w")])
 (define_mode_attr vfp_type [(SF "s") (DF "d")])
 (define_mode_attr vfp_double_cond [(SF "") (DF "&& TARGET_VFP_DOUBLE")])
-(define_mode_attr VF_constraint [(V2SF "t") (V4SF "w")])
+(define_mode_attr VF_constraint [(V4HF "t") (V8HF "t") (V2SF "t") (V4SF "w")])
 
 ;; Mode attribute used to build the "type" attribute.
 (define_mode_attr q [(V8QI "") (V16QI "_q")
@@ -824,6 +840,7 @@
   (UNSPEC_VSUBW_S "s") (UNSPEC_VSUBW_U "u")
   (UNSPEC_VHSUB_S "s") (UNSPEC_VHSUB_U "u")
   (UNSPEC_VQSUB_S "s") (UNSPEC_VQSUB_U "u")
+  (UNSPEC_VABAL_S "s") (UNSPEC_VABAL_U "u")
   (UNSPEC_VABD_S "s") (UNSPEC_VABD_U "u")
   (UNSPEC_VABDL_S "s") (UNSPEC_VABDL_U "u")
   (UNSPEC_VMAX "s") (UNSPEC_VMAX_U "u")
@@ -988,6 +1005,13 @@
                           (UNSPEC_SHA1M "V4SI") (UNSPEC_SHA1P "V4SI")
                           (UNSPEC_SHA1SU0 "V4SI") (UNSPEC_SHA256H "V4SI")
                           (UNSPEC_SHA256H2 "V4SI") (UNSPEC_SHA256SU1 "V4SI")])
+
+(define_int_attr rot [(UNSPEC_VCADD90 "90")
+		      (UNSPEC_VCADD270 "270")
+		      (UNSPEC_VCMLA "0")
+		      (UNSPEC_VCMLA90 "90")
+		      (UNSPEC_VCMLA180 "180")
+		      (UNSPEC_VCMLA270 "270")])
 
 ;; Both kinds of return insn.
 (define_code_iterator RETURNS [return simple_return])

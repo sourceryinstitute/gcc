@@ -1,5 +1,5 @@
 /* Processing rules for constraints.
-   Copyright (C) 2013-2018 Free Software Foundation, Inc.
+   Copyright (C) 2013-2019 Free Software Foundation, Inc.
    Contributed by Andrew Sutton (andrew.n.sutton@gmail.com)
 
 This file is part of GCC.
@@ -517,8 +517,9 @@ get_concept_definition (tree decl)
 
 int expansion_level = 0;
 
-struct expanding_concept_sentinel
+class expanding_concept_sentinel
 {
+public:
   expanding_concept_sentinel ()
   {
     ++expansion_level;
@@ -804,7 +805,7 @@ check_for_logical_overloads (tree t)
 
   if (DECL_OVERLOADED_OPERATOR_P (fn))
     {
-      location_t loc = EXPR_LOC_OR_LOC (t, input_location);
+      location_t loc = cp_expr_loc_or_input_loc (t);
       error_at (loc, "constraint %qE, uses overloaded operator", t);
       return true;
     }
@@ -1257,6 +1258,9 @@ finish_shorthand_constraint (tree decl, tree constr)
 {
   /* No requirements means no constraints.  */
   if (!constr)
+    return NULL_TREE;
+
+  if (error_operand_p (constr))
     return NULL_TREE;
 
   tree proto = CONSTRAINED_PARM_PROTOTYPE (constr);
@@ -2012,7 +2016,7 @@ satisfy_predicate_constraint (tree t, tree args,
   tree type = cv_unqualified (TREE_TYPE (expr));
   if (!same_type_p (type, boolean_type_node))
     {
-      error_at (EXPR_LOC_OR_LOC (expr, input_location),
+      error_at (cp_expr_loc_or_input_loc (expr),
                 "constraint %qE does not have type %qT",
                 expr, boolean_type_node);
       return boolean_false_node;
@@ -2690,13 +2694,13 @@ diagnose_trait_expression (location_t loc, tree, tree cur, tree args)
   switch (TRAIT_EXPR_KIND (expr))
     {
     case CPTK_HAS_NOTHROW_ASSIGN:
-      inform (loc, "  %qT is not nothrow copy assignable", t1);
+      inform (loc, "  %qT is not %<nothrow%> copy assignable", t1);
       break;
     case CPTK_HAS_NOTHROW_CONSTRUCTOR:
-      inform (loc, "  %qT is not nothrow default constructible", t1);
+      inform (loc, "  %qT is not %<nothrow%> default constructible", t1);
       break;
     case CPTK_HAS_NOTHROW_COPY:
-      inform (loc, "  %qT is not nothrow copy constructible", t1);
+      inform (loc, "  %qT is not %<nothrow%> copy constructible", t1);
       break;
     case CPTK_HAS_TRIVIAL_ASSIGN:
       inform (loc, "  %qT is not trivially copy assignable", t1);

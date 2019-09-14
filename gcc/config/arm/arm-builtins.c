@@ -1,5 +1,5 @@
 /* Description of builtins used by the ARM backend.
-   Copyright (C) 2014-2018 Free Software Foundation, Inc.
+   Copyright (C) 2014-2019 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -78,7 +78,14 @@ enum arm_type_qualifiers
   /* Lane indices - must be within range of previous argument = a vector.  */
   qualifier_lane_index = 0x200,
   /* Lane indices for single lane structure loads and stores.  */
-  qualifier_struct_load_store_lane_index = 0x400
+  qualifier_struct_load_store_lane_index = 0x400,
+  /* A void pointer.  */
+  qualifier_void_pointer = 0x800,
+  /* A const void pointer.  */
+  qualifier_const_void_pointer = 0x802,
+  /* Lane indices selected in pairs - must be within range of previous
+     argument = a vector.  */
+  qualifier_lane_pair_index = 0x1000
 };
 
 /*  The qualifier_internal allows generation of a unary builtin from
@@ -139,6 +146,13 @@ arm_mac_lane_qualifiers[SIMD_MAX_BUILTIN_ARGS]
   = { qualifier_none, qualifier_none, qualifier_none,
       qualifier_none, qualifier_lane_index };
 #define MAC_LANE_QUALIFIERS (arm_mac_lane_qualifiers)
+
+/* T (T, T, T, lane pair index).  */
+static enum arm_type_qualifiers
+arm_mac_lane_pair_qualifiers[SIMD_MAX_BUILTIN_ARGS]
+  = { qualifier_none, qualifier_none, qualifier_none,
+      qualifier_none, qualifier_lane_pair_index };
+#define MAC_LANE_PAIR_QUALIFIERS (arm_mac_lane_pair_qualifiers)
 
 /* unsigned T (unsigned T, unsigned T, unsigend T, lane index).  */
 static enum arm_type_qualifiers
@@ -202,7 +216,7 @@ arm_cdp_qualifiers[SIMD_MAX_BUILTIN_ARGS]
 static enum arm_type_qualifiers
 arm_ldc_qualifiers[SIMD_MAX_BUILTIN_ARGS]
   = { qualifier_void, qualifier_unsigned_immediate,
-      qualifier_unsigned_immediate, qualifier_const_pointer };
+      qualifier_unsigned_immediate, qualifier_const_void_pointer };
 #define LDC_QUALIFIERS \
   (arm_ldc_qualifiers)
 
@@ -210,7 +224,7 @@ arm_ldc_qualifiers[SIMD_MAX_BUILTIN_ARGS]
 static enum arm_type_qualifiers
 arm_stc_qualifiers[SIMD_MAX_BUILTIN_ARGS]
   = { qualifier_void, qualifier_unsigned_immediate,
-      qualifier_unsigned_immediate, qualifier_pointer };
+      qualifier_unsigned_immediate, qualifier_void_pointer };
 #define STC_QUALIFIERS \
   (arm_stc_qualifiers)
 
@@ -362,7 +376,7 @@ static arm_builtin_datum neon_builtin_data[] =
 #undef CF
 #undef VAR1
 #define VAR1(T, N, A) \
-  {#N, UP (A), CODE_FOR_##N, 0, T##_QUALIFIERS},
+  {#N, UP (A), CODE_FOR_arm_##N, 0, T##_QUALIFIERS},
 
 static arm_builtin_datum acle_builtin_data[] =
 {
@@ -923,6 +937,11 @@ arm_init_simd_builtin_types (void)
   (*lang_hooks.types.register_builtin_type) (arm_simd_polyTI_type_node,
 					     "__builtin_neon_poly128");
 
+  /* Prevent front-ends from transforming poly vectors into string
+     literals.  */
+  TYPE_STRING_FLAG (arm_simd_polyQI_type_node) = false;
+  TYPE_STRING_FLAG (arm_simd_polyHI_type_node) = false;
+
   /* Init all the element types built by the front-end.  */
   arm_simd_types[Int8x8_t].eltype = intQI_type_node;
   arm_simd_types[Int8x16_t].eltype = intQI_type_node;
@@ -1095,19 +1114,25 @@ arm_init_builtin (unsigned int fcode, arm_builtin_datum *d,
       if (qualifiers & qualifier_pointer && VECTOR_MODE_P (op_mode))
 	op_mode = GET_MODE_INNER (op_mode);
 
-      eltype = arm_simd_builtin_type
-	(op_mode,
-	 (qualifiers & qualifier_unsigned) != 0,
-	 (qualifiers & qualifier_poly) != 0);
-      gcc_assert (eltype != NULL);
+      /* For void pointers we already have nodes constructed by the midend.  */
+      if (qualifiers & qualifier_void_pointer)
+	eltype = qualifiers & qualifier_const
+		 ? const_ptr_type_node : ptr_type_node;
+      else
+	{
+	  eltype
+	    = arm_simd_builtin_type (op_mode,
+				     (qualifiers & qualifier_unsigned) != 0,
+				     (qualifiers & qualifier_poly) != 0);
+	  gcc_assert (eltype != NULL);
 
-      /* Add qualifiers.  */
-      if (qualifiers & qualifier_const)
-	eltype = build_qualified_type (eltype, TYPE_QUAL_CONST);
+	  /* Add qualifiers.  */
+	  if (qualifiers & qualifier_const)
+	    eltype = build_qualified_type (eltype, TYPE_QUAL_CONST);
 
-      if (qualifiers & qualifier_pointer)
-	eltype = build_pointer_type (eltype);
-
+	  if (qualifiers & qualifier_pointer)
+	    eltype = build_pointer_type (eltype);
+	}
       /* If we have reached arg_num == 0, we are at a non-void
 	 return type.  Otherwise, we are still processing
 	 arguments.  */
@@ -1968,24 +1993,11 @@ arm_expand_ternop_builtin (enum insn_code icode,
   rtx op0 = expand_normal (arg0);
   rtx op1 = expand_normal (arg1);
   rtx op2 = expand_normal (arg2);
-  rtx op3 = NULL_RTX;
 
-  /* The sha1c, sha1p, sha1m crypto builtins require a different vec_select
-     lane operand depending on endianness.  */
-  bool builtin_sha1cpm_p = false;
-
-  if (insn_data[icode].n_operands == 5)
-    {
-      gcc_assert (icode == CODE_FOR_crypto_sha1c
-                  || icode == CODE_FOR_crypto_sha1p
-                  || icode == CODE_FOR_crypto_sha1m);
-      builtin_sha1cpm_p = true;
-    }
   machine_mode tmode = insn_data[icode].operand[0].mode;
   machine_mode mode0 = insn_data[icode].operand[1].mode;
   machine_mode mode1 = insn_data[icode].operand[2].mode;
   machine_mode mode2 = insn_data[icode].operand[3].mode;
-
 
   if (VECTOR_MODE_P (mode0))
     op0 = safe_vector_operand (op0, mode0);
@@ -2009,13 +2021,8 @@ arm_expand_ternop_builtin (enum insn_code icode,
     op1 = copy_to_mode_reg (mode1, op1);
   if (! (*insn_data[icode].operand[3].predicate) (op2, mode2))
     op2 = copy_to_mode_reg (mode2, op2);
-  if (builtin_sha1cpm_p)
-    op3 = GEN_INT (TARGET_BIG_END ? 1 : 0);
 
-  if (builtin_sha1cpm_p)
-    pat = GEN_FCN (icode) (target, op0, op1, op2, op3);
-  else
-    pat = GEN_FCN (icode) (target, op0, op1, op2);
+  pat = GEN_FCN (icode) (target, op0, op1, op2);
   if (! pat)
     return 0;
   emit_insn (pat);
@@ -2071,16 +2078,8 @@ arm_expand_unop_builtin (enum insn_code icode,
   rtx pat;
   tree arg0 = CALL_EXPR_ARG (exp, 0);
   rtx op0 = expand_normal (arg0);
-  rtx op1 = NULL_RTX;
   machine_mode tmode = insn_data[icode].operand[0].mode;
   machine_mode mode0 = insn_data[icode].operand[1].mode;
-  bool builtin_sha1h_p = false;
-
-  if (insn_data[icode].n_operands == 3)
-    {
-      gcc_assert (icode == CODE_FOR_crypto_sha1h);
-      builtin_sha1h_p = true;
-    }
 
   if (! target
       || GET_MODE (target) != tmode
@@ -2096,13 +2095,9 @@ arm_expand_unop_builtin (enum insn_code icode,
       if (! (*insn_data[icode].operand[1].predicate) (op0, mode0))
 	op0 = copy_to_mode_reg (mode0, op0);
     }
-  if (builtin_sha1h_p)
-    op1 = GEN_INT (TARGET_BIG_END ? 1 : 0);
 
-  if (builtin_sha1h_p)
-    pat = GEN_FCN (icode) (target, op0, op1);
-  else
-    pat = GEN_FCN (icode) (target, op0);
+  pat = GEN_FCN (icode) (target, op0);
+
   if (! pat)
     return 0;
   emit_insn (pat);
@@ -2114,6 +2109,7 @@ typedef enum {
   ARG_BUILTIN_CONSTANT,
   ARG_BUILTIN_LANE_INDEX,
   ARG_BUILTIN_STRUCT_LOAD_STORE_LANE_INDEX,
+  ARG_BUILTIN_LANE_PAIR_INDEX,
   ARG_BUILTIN_NEON_MEMORY,
   ARG_BUILTIN_MEMORY,
   ARG_BUILTIN_STOP
@@ -2250,6 +2246,19 @@ arm_expand_builtin_args (rtx target, machine_mode map_mode, int fcode,
 		{
 		  machine_mode vmode = mode[argc - 1];
 		  neon_lane_bounds (op[argc], 0, GET_MODE_NUNITS (vmode), exp);
+		}
+	      /* If the lane index isn't a constant then error out.  */
+	      goto constant_arg;
+
+	    case ARG_BUILTIN_LANE_PAIR_INDEX:
+	      /* Previous argument must be a vector, which this indexes. The
+		 indexing will always select i and i+1 out of the vector, which
+		 puts a limit on i.  */
+	      gcc_assert (argc > 0);
+	      if (CONST_INT_P (op[argc]))
+		{
+		  machine_mode vmode = mode[argc - 1];
+		  neon_lane_bounds (op[argc], 0, GET_MODE_NUNITS (vmode) / 2, exp);
 		}
 	      /* If the lane index isn't a constant then the next
 		 case will error.  */
@@ -2412,6 +2421,8 @@ arm_expand_builtin_1 (int fcode, tree exp, rtx target,
 
       if (d->qualifiers[qualifiers_k] & qualifier_lane_index)
 	args[k] = ARG_BUILTIN_LANE_INDEX;
+      else if (d->qualifiers[qualifiers_k] & qualifier_lane_pair_index)
+	args[k] = ARG_BUILTIN_LANE_PAIR_INDEX;
       else if (d->qualifiers[qualifiers_k] & qualifier_struct_load_store_lane_index)
 	args[k] = ARG_BUILTIN_STRUCT_LOAD_STORE_LANE_INDEX;
       else if (d->qualifiers[qualifiers_k] & qualifier_immediate)
@@ -2473,7 +2484,7 @@ arm_expand_neon_builtin (int fcode, tree exp, rtx target)
     {
       fatal_error (input_location,
 		   "You must enable NEON instructions"
-		   " (e.g. -mfloat-abi=softfp -mfpu=neon)"
+		   " (e.g. %<-mfloat-abi=softfp%> %<-mfpu=neon%>)"
 		   " to use these intrinsics.");
       return const0_rtx;
     }
@@ -2544,7 +2555,7 @@ arm_expand_builtin (tree exp,
   rtx               op1;
   rtx               op2;
   rtx               pat;
-  unsigned int      fcode = DECL_FUNCTION_CODE (fndecl);
+  unsigned int      fcode = DECL_MD_FUNCTION_CODE (fndecl);
   size_t            i;
   machine_mode tmode;
   machine_mode mode0;
@@ -2571,7 +2582,8 @@ arm_expand_builtin (tree exp,
     {
       fatal_error (input_location,
 		   "You must enable crypto instructions"
-		   " (e.g. include -mfloat-abi=softfp -mfpu=crypto-neon...)"
+		   " (e.g. include %<-mfloat-abi=softfp%> "
+		   "%<-mfpu=crypto-neon%>)"
 		   " to use these intrinsics.");
       return const0_rtx;
     }
@@ -2592,7 +2604,7 @@ arm_expand_builtin (tree exp,
 	  icode = CODE_FOR_set_fpscr;
 	  arg0 = CALL_EXPR_ARG (exp, 0);
 	  op0 = expand_normal (arg0);
-	  pat = GEN_FCN (icode) (op0);
+	  pat = GEN_FCN (icode) (force_reg (SImode, op0));
 	}
       emit_insn (pat);
       return target;
@@ -2600,7 +2612,9 @@ arm_expand_builtin (tree exp,
     case ARM_BUILTIN_CMSE_NONSECURE_CALLER:
       target = gen_reg_rtx (SImode);
       op0 = arm_return_addr (0, NULL_RTX);
-      emit_insn (gen_addsi3 (target, op0, const1_rtx));
+      emit_insn (gen_andsi3 (target, op0, const1_rtx));
+      op1 = gen_rtx_EQ (SImode, target, const0_rtx);
+      emit_insn (gen_cstoresi4 (target, op1, target, const0_rtx));
       return target;
 
     case ARM_BUILTIN_TEXTRMSB:

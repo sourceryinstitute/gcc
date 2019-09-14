@@ -1,7 +1,7 @@
 /* Automatic switching between software and hardware IEEE 128-bit
    floating-point emulation for PowerPC.
 
-   Copyright (C) 2016-2018 Free Software Foundation, Inc.
+   Copyright (C) 2016-2019 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Michael Meissner (meissner@linux.vnet.ibm.com)
    Code is based on the main soft-fp library written by:
@@ -82,6 +82,12 @@ static __typeof__ (__negkf2_sw) *
 __negkf2_resolve (void)
 {
   return SW_OR_HW (__negkf2_sw, __negkf2_hw);
+}
+
+static __typeof__ (__powikf2_sw) *
+__powikf2_resolve (void)
+{
+  return SW_OR_HW (__powikf2_sw, __powikf2_hw);
 }
 
 static __typeof__ (__floatsikf_sw) *
@@ -242,6 +248,9 @@ TFtype __divkf3 (TFtype, TFtype)
 
 TFtype __negkf2 (TFtype)
   __attribute__ ((__ifunc__ ("__negkf2_resolve")));
+
+TFtype __powikf2 (TFtype, SItype_ppc)
+  __attribute__ ((__ifunc__ ("__powikf2_resolve")));
 
 CMPtype __eqkf2 (TFtype, TFtype)
   __attribute__ ((__ifunc__ ("__eqkf2_resolve")));

@@ -69,6 +69,9 @@ func OpenReader(name string) (*ReadCloser, error) {
 // NewReader returns a new Reader reading from r, which is assumed to
 // have the given size in bytes.
 func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
+	if size < 0 {
+		return nil, errors.New("zip: size cannot be negative")
+	}
 	zr := new(Reader)
 	if err := zr.init(r, size); err != nil {
 		return nil, err
@@ -366,7 +369,7 @@ parseExtras:
 				epoch := time.Date(1601, time.January, 1, 0, 0, 0, 0, time.UTC)
 				modified = time.Unix(epoch.Unix()+secs, nsecs)
 			}
-		case unixExtraID:
+		case unixExtraID, infoZipUnixExtraID:
 			if len(fieldBuf) < 8 {
 				continue parseExtras
 			}
@@ -375,12 +378,6 @@ parseExtras:
 			modified = time.Unix(ts, 0)
 		case extTimeExtraID:
 			if len(fieldBuf) < 5 || fieldBuf.uint8()&1 == 0 {
-				continue parseExtras
-			}
-			ts := int64(fieldBuf.uint32()) // ModTime since Unix epoch
-			modified = time.Unix(ts, 0)
-		case infoZipUnixExtraID:
-			if len(fieldBuf) < 4 {
 				continue parseExtras
 			}
 			ts := int64(fieldBuf.uint32()) // ModTime since Unix epoch

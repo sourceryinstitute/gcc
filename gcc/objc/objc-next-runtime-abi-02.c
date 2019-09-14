@@ -1,5 +1,5 @@
 /* Next Runtime (ABI-2) private.
-   Copyright (C) 2011-2018 Free Software Foundation, Inc.
+   Copyright (C) 2011-2019 Free Software Foundation, Inc.
 
    Contributed by Iain Sandoe and based, in part, on an implementation in
    'branches/apple/trunk' contributed by Apple Computer Inc.
@@ -241,8 +241,10 @@ objc_next_runtime_abi_02_init (objc_runtime_hooks *rthooks)
 
   if (flag_objc_exceptions && flag_objc_sjlj_exceptions)
     {
-      inform (UNKNOWN_LOCATION, "%<-fobjc-sjlj-exceptions%> is ignored for "
-				"%<-fnext-runtime%> when %<-fobjc-abi-version%> >= 2");
+      inform (UNKNOWN_LOCATION,
+	      "%<-fobjc-sjlj-exceptions%> is ignored for "
+	      "%<-fnext-runtime%> when %<-fobjc-abi-version%> "
+	      "greater than 1");
       flag_objc_sjlj_exceptions = 0;
     }
 

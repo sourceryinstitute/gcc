@@ -15,4 +15,5 @@ test_pack (vector double vd2, vector double vd3)
   return vec_pack (vd2, vd3);
 }
 
-/* { dg-final { scan-assembler-times "vpkudum" 1 } } */
+/* { dg-final { scan-assembler-times "vmrgew" 1 { target be } } } */
+/* { dg-final { scan-assembler-times "vmrgow"  1 { target le } } } */

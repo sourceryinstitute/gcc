@@ -1,5 +1,5 @@
 /* ELF program property for Intel CET.
-   Copyright (C) 2017-2018 Free Software Foundation, Inc.
+   Copyright (C) 2017-2019 Free Software Foundation, Inc.
 
    This file is free software; you can redistribute it and/or modify it
    under the terms of the GNU General Public License as published by the
@@ -32,7 +32,7 @@
 
 #ifdef __ASSEMBLER__
 
-# ifdef __IBT__
+# if defined __CET__ && (__CET__ & 1) != 0
 #  ifdef __x86_64__
 #   define _CET_ENDBR endbr64
 #  else
@@ -44,14 +44,14 @@
 
 # ifdef __ELF__
 #  ifdef __CET__
-#   ifdef __IBT__
+#   if (__CET__ & 1) != 0
 /* GNU_PROPERTY_X86_FEATURE_1_IBT.  */
 #    define __PROPERTY_IBT 0x1
 #   else
 #    define __PROPERTY_IBT 0x0
 #   endif
 
-#   ifdef __SHSTK__
+#   if (__CET__ & 2) != 0
 /* GNU_PROPERTY_X86_FEATURE_1_SHSTK.  */
 #    define __PROPERTY_SHSTK 0x2
 #   else
