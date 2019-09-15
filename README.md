@@ -25,8 +25,8 @@ cd oppencoarrays
   --install-version <release-tag> \
   --num-threads 4
 ```
-where `<release-tag>` must be replaced with the appropriate string such as co_broadcast-20190825.
-If it fails, retry with `--bootstrap`, which takes _much_ longer but has a higher chance of working
+where `<release-tag>` must be replaced with the appropriate string such as co_broadcast-20190913.
+If it fails, retry and add `--bootstrap`, which takes _much_ longer but has a higher chance of working
 when building with older versions of GCC.  Also, for a non-interactive build, add `--yes-to-all` to
 instruct the installer to assume affirmative answers to any queries. If successful, the above steps 
 will install GCC in the `prerequisites/installations` subdirectory.  To see additional installation
@@ -34,7 +34,6 @@ options, including choosing another installation path, execute `./install.sh --h
 
 Next use the resulting compilers to build [MPICH] 3.2 or later:
 ```bash
-
 # Install MPICH 3.2 or later using the GCC that was installed above:
 export LD_LIBRARY_PATH="${PWD}"/prerequisites/installations/gcc/teams-<release-tag>/lib:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH="${PWD}"/prerequisites/installations/gcc/teams-<release-tag>/lib64:$LD_LIBRARY_PATH
@@ -45,7 +44,7 @@ export LD_LIBRARY_PATH="${PWD}"/prerequisites/installations/gcc/teams-<release-t
    --with-cpp     "${PWD}"/prerequisites/installations/gcc/<release-tag>bin/g++ \
    --num-threads 4
 ```
- the [opencoarrays-teams branch] of OpenCoarrays.  
+Finally, build OpenCoarrays using the just-installed MPICH:  
 ```bash
 # Install OpenCoarrays using the MPICH just installed:
 ./install.sh  \
@@ -85,12 +84,8 @@ individually.
 [GCC]: https://gcc.gnu.org/gcc
 [OpenCoarrays]: https://www.opendcoarrays.org
 [MPICH]: https://www.mpich.org
-[teams branch]: https://github.com/sourceryinstitute/gcc/tree/teams
-[issue-#6-iso-fortran-binding-h branch]: https://github.com/sourceryinstitute/gcc/tree/issue-#6-iso-fortran-binding-h
-[download-opencoarrays-mpich branch]: https://github.com/sourceryinstitute/gcc/tree/download-opencoarrays-mpich 
 [releases]: https://github.com/sourceryinstitute/gcc/releases/
 [issues page]: https://github.com/sourceryinstitute/gcc/issues/
-[opencoarrays-teams branch]: https://github.com/sourceryinstitute/opencoarrays/tree/opencoarrays-teams
 [pull request]: https://github.com/sourceryinstitute/gcc/pulls
 [latest release]: https://github.com/sourceryinstitute/gcc/releases/latest
 [Sourcery Institute]: https://www.sourceryinstitute.org
